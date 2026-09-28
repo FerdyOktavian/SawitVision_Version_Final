@@ -88,7 +88,11 @@ def export_my_predictions_excel(
         ) from None
 
     safe_name = sanitize_filename(current_user.get("name") or "user")
-    date_suffix = datetime.now().strftime("%Y-%m-%d")
+    date_suffix = (
+        f"{start_date}_{end_date}"
+        if start_date and end_date
+        else datetime.now().strftime("%Y-%m-%d")
+    )
     filename = f"Laporan_Prediksi_{safe_name}_{date_suffix}.xlsx"
 
     return build_excel_response(buffer, filename)

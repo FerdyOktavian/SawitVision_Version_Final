@@ -10,7 +10,7 @@ Perubahan utama V3:
 
 import io
 import re
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timezone
 from zoneinfo import ZoneInfo
 from typing import Any, Dict, Iterable, List, Optional
 
@@ -76,12 +76,38 @@ def build_period_label(
     return "Semua periode"
 
 
-def _start_datetime(value: Optional[date]) -> Optional[datetime]:
-    return datetime.combine(value, time.min) if value else None
+def _start_datetime(
+    value: Optional[date],
+    calendar_timezone: Optional[ZoneInfo] = None,
+) -> Optional[datetime]:
+    if not value:
+        return None
+
+    boundary = datetime.combine(value, time.min)
+
+    if calendar_timezone is None:
+        return boundary
+
+    return boundary.replace(
+        tzinfo=calendar_timezone,
+    ).astimezone(timezone.utc)
 
 
-def _end_datetime(value: Optional[date]) -> Optional[datetime]:
-    return datetime.combine(value, time.max) if value else None
+def _end_datetime(
+    value: Optional[date],
+    calendar_timezone: Optional[ZoneInfo] = None,
+) -> Optional[datetime]:
+    if not value:
+        return None
+
+    boundary = datetime.combine(value, time.max)
+
+    if calendar_timezone is None:
+        return boundary
+
+    return boundary.replace(
+        tzinfo=calendar_timezone,
+    ).astimezone(timezone.utc)
 
 
 def get_user_prediction_report_data(
@@ -110,8 +136,8 @@ def get_user_prediction_report_data(
     ]
     params = {
         "user_id": user_id,
-        "start_at": _start_datetime(start_date),
-        "end_at": _end_datetime(end_date),
+        "start_at": _start_datetime(start_date, JAKARTA_TZ),
+        "end_at": _end_datetime(end_date, JAKARTA_TZ),
     }
 
     rows = db.execute(
