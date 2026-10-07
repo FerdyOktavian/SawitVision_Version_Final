@@ -46,6 +46,12 @@ from image_safety import log_rss_checkpoint
 
 logger = logging.getLogger(__name__)
 
+# Some virtualized CPUs (for example older KVM CPU profiles without AVX)
+# cannot execute certain oneDNN/MKLDNN primitives reliably.
+# SawitVision production inference is CPU-safe without MKLDNN.
+if not torch.cuda.is_available():
+    torch.backends.mkldnn.enabled = False
+
 CLASS_NAMES = ("belum_masak", "masak", "terlalu_masak")
 CLASS_TO_INDEX = {name: index for index, name in enumerate(CLASS_NAMES)}
 
