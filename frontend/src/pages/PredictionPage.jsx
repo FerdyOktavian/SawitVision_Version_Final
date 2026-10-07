@@ -156,46 +156,55 @@ function dataUrlToFile(dataUrl, filename) {
   });
 }
 
-function captureOptionalLocation() {
-  return new Promise((resolve) => {
-    if (
-      typeof navigator === "undefined" ||
-      !navigator.geolocation?.getCurrentPosition
-    ) {
-      resolve({ location: null, status: "unsupported" });
-      return;
-    }
+async function captureOptionalLocation() {
+  if (
+    typeof navigator === "undefined" ||
+    !navigator.geolocation?.getCurrentPosition
+  ) {
+    return { location: null, status: "unsupported" };
+  }
 
-    try {
+  const requestPosition = () =>
+    new Promise((resolve) => {
       navigator.geolocation.getCurrentPosition(
-        (position) => {
-          resolve({
-            location: {
-              latitude: position.coords.latitude,
-              longitude: position.coords.longitude,
-              accuracy: position.coords.accuracy,
-              capturedAt: new Date().toISOString(),
-            },
-            status: "available",
-          });
-        },
-        (locationError) => {
-          let status = "unavailable";
-
-          if (locationError?.code === 1) {
-            status = "denied";
-          } else if (locationError?.code === 3) {
-            status = "timeout";
-          }
-
-          resolve({ location: null, status });
-        },
+        (position) => resolve({ position, error: null }),
+        (error) => resolve({ position: null, error }),
         GEOLOCATION_OPTIONS,
       );
-    } catch {
-      resolve({ location: null, status: "unavailable" });
+    });
+
+  try {
+    let result = await requestPosition();
+
+    // A newly granted permission can finish before a cold GPS fix is ready.
+    // Retry transient failures once within the same prediction attempt.
+    if (!result.position && [2, 3].includes(result.error?.code)) {
+      result = await requestPosition();
     }
-  });
+
+    if (result.position) {
+      return {
+        location: {
+          latitude: result.position.coords.latitude,
+          longitude: result.position.coords.longitude,
+          accuracy: result.position.coords.accuracy,
+          capturedAt: new Date().toISOString(),
+        },
+        status: "available",
+      };
+    }
+
+    return {
+      location: null,
+      status: result.error?.code === 1
+        ? "denied"
+        : result.error?.code === 3
+          ? "timeout"
+          : "unavailable",
+    };
+  } catch {
+    return { location: null, status: "unavailable" };
+  }
 }
 
 function PredictionPage({ onOpenHistory }) {
