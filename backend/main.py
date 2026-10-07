@@ -20,6 +20,7 @@ import math
 import time
 import warnings
 from datetime import datetime
+from uuid import UUID
 
 from fastapi import (
     Depends,
@@ -72,7 +73,14 @@ from image_safety import (
     log_rss_checkpoint,
     measure_upload_size,
     process_rss_bytes,
+    sha256_upload,
     validate_image_dimensions,
+)
+from prediction_idempotency import (
+    build_prediction_request_fingerprint,
+    claim_prediction_request,
+    complete_prediction_request,
+    fail_prediction_request,
 )
 from predict import load_ai_pipeline, predict_image_with_pipeline
 from observability import configure_logging, request_observability_middleware
@@ -316,6 +324,29 @@ ENABLE_API_DOCS = env_bool("ENABLE_API_DOCS", not IS_PRODUCTION)
 APP_ENV = str(env_text("APP_ENV", "development"))
 GEOCODING_ENABLED = env_bool("GEOCODING_ENABLED", True)
 
+
+def mark_prediction_request_failed_safely(
+    *,
+    user_id: str,
+    client_request_id: str,
+    request_fingerprint: str,
+    prediction_record_id: str | None,
+) -> None:
+    """Best-effort terminal transition without exposing failure details."""
+    db = SessionLocal()
+    try:
+        fail_prediction_request(
+            db,
+            user_id=user_id,
+            client_request_id=client_request_id,
+            request_fingerprint=request_fingerprint,
+            prediction_record_id=prediction_record_id,
+        )
+    except Exception:
+        logger.exception("prediction_idempotency_failure_update_failed")
+    finally:
+        db.close()
+
 app = FastAPI(
     title="SawitVision V3 API",
     description=(
@@ -487,6 +518,7 @@ async def predict(
     location_captured_at: str | None = Form(None),
     location_auto_name: str | None = Form(None),
     location_label: str | None = Form(None),
+    client_request_id: UUID | None = Form(None),
     current_user: dict = Depends(get_current_user),
 ):
     image = None
@@ -495,6 +527,13 @@ async def predict(
     prediction_started_at = time.perf_counter()
     ai_duration_ms = 0.0
     rss_before_bytes = None
+    idempotency_request_id = (
+        str(client_request_id) if client_request_id is not None else None
+    )
+    idempotency_fingerprint = None
+    idempotency_claim_created = False
+    idempotency_completed = False
+    idempotency_prediction_record_id = None
 
     try:
         log_rss_checkpoint(logger, "predict_start")
@@ -540,6 +579,11 @@ async def predict(
 
         location["location_auto_name"] = normalized_auto_name
         location["location_label"] = normalized_location_label
+
+        normalized_input_source = input_source.strip().lower()
+        if normalized_input_source not in {"camera", "gallery", "web_upload"}:
+            normalized_input_source = "web_upload"
+
         if file.content_type not in ALLOWED_IMAGE_TYPES:
             raise HTTPException(
                 status_code=400,
@@ -556,6 +600,10 @@ async def predict(
                 status_code=413,
                 detail="Ukuran foto terlalu besar untuk diproses.",
             ) from None
+
+        file_sha256 = None
+        if idempotency_request_id is not None:
+            file_sha256 = await sha256_upload(file)
 
         try:
             with warnings.catch_warnings():
@@ -598,6 +646,63 @@ async def predict(
             ) from None
         log_rss_checkpoint(logger, "after_header_validation")
 
+        if idempotency_request_id is not None:
+            idempotency_fingerprint = build_prediction_request_fingerprint(
+                file_sha256=file_sha256,
+                input_source=normalized_input_source,
+                location=location,
+            )
+            db = SessionLocal()
+            try:
+                idempotency_claim = claim_prediction_request(
+                    db,
+                    user_id=str(current_user["id"]),
+                    client_request_id=idempotency_request_id,
+                    request_fingerprint=idempotency_fingerprint,
+                )
+            finally:
+                db.close()
+
+            if not idempotency_claim["created"]:
+                if (
+                    idempotency_claim["request_fingerprint"]
+                    != idempotency_fingerprint
+                ):
+                    raise HTTPException(
+                        status_code=409,
+                        detail={
+                            "code": "idempotency_fingerprint_mismatch",
+                            "message": (
+                                "client_request_id sudah digunakan untuk "
+                                "request yang berbeda."
+                            ),
+                        },
+                    )
+
+                idempotency_status = idempotency_claim["status"]
+                if idempotency_status == "completed":
+                    return idempotency_claim["response_payload"]
+                if idempotency_status == "processing":
+                    conflict_code = "idempotency_processing"
+                    conflict_message = "Request prediksi masih diproses."
+                elif idempotency_status == "failed":
+                    conflict_code = "idempotency_failed"
+                    conflict_message = (
+                        "Request prediksi sebelumnya gagal dan tidak dijalankan ulang."
+                    )
+                else:
+                    conflict_code = "idempotency_invalid_status"
+                    conflict_message = "Status request prediksi tidak valid."
+                raise HTTPException(
+                    status_code=409,
+                    detail={
+                        "code": conflict_code,
+                        "message": conflict_message,
+                    },
+                )
+
+            idempotency_claim_created = True
+
         await PREDICTION_SEMAPHORE.acquire()
         prediction_slot_acquired = True
         rss_before_bytes = log_rss_checkpoint(
@@ -638,10 +743,6 @@ async def predict(
         image.close()
         image = None
         log_rss_checkpoint(logger, "after_source_release")
-
-        normalized_input_source = input_source.strip().lower()
-        if normalized_input_source not in {"camera", "gallery", "web_upload"}:
-            normalized_input_source = "web_upload"
 
         confidence_value = float(confidence)
         should_save_history = (
@@ -692,6 +793,9 @@ async def predict(
                     location_captured_at=location["location_captured_at"],
                     location_auto_name=location["location_auto_name"],
                     location_label=location["location_label"],
+                )
+                idempotency_prediction_record_id = (
+                    str(record["id"]) if record else None
                 )
             finally:
                 db.close()
@@ -852,10 +956,40 @@ async def predict(
             rss_before_bytes,
             rss_after_bytes,
         )
+
+        if idempotency_claim_created:
+            db = SessionLocal()
+            try:
+                complete_prediction_request(
+                    db,
+                    user_id=str(current_user["id"]),
+                    client_request_id=idempotency_request_id,
+                    request_fingerprint=idempotency_fingerprint,
+                    response_payload=response_payload,
+                    prediction_record_id=idempotency_prediction_record_id,
+                )
+                idempotency_completed = True
+            finally:
+                db.close()
+
         return response_payload
     except HTTPException:
+        if idempotency_claim_created and not idempotency_completed:
+            mark_prediction_request_failed_safely(
+                user_id=str(current_user["id"]),
+                client_request_id=idempotency_request_id,
+                request_fingerprint=idempotency_fingerprint,
+                prediction_record_id=idempotency_prediction_record_id,
+            )
         raise
     except Exception:
+        if idempotency_claim_created and not idempotency_completed:
+            mark_prediction_request_failed_safely(
+                user_id=str(current_user["id"]),
+                client_request_id=idempotency_request_id,
+                request_fingerprint=idempotency_fingerprint,
+                prediction_record_id=idempotency_prediction_record_id,
+            )
         logger.exception("prediction_request_failed")
         raise HTTPException(
             status_code=500,

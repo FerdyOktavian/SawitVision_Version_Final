@@ -104,9 +104,12 @@ async function apiRequest(endpoint, options = {}) {
       headers,
     });
   } catch {
-    throw new Error(
+    const networkError = new Error(
       "Tidak dapat terhubung ke server. Pastikan backend sedang berjalan.",
     );
+    networkError.kind = "network";
+    networkError.status = null;
+    throw networkError;
   }
 
   let data = null;
@@ -118,13 +121,17 @@ async function apiRequest(endpoint, options = {}) {
   }
 
   if (!response.ok) {
+    const detail = data?.detail;
     const message =
-      data?.detail ||
+      (typeof detail === "string" ? detail : detail?.message) ||
+      (Array.isArray(detail) ? detail[0]?.msg : null) ||
       data?.message ||
       "Terjadi kesalahan saat memproses permintaan.";
 
     const requestError = new Error(message);
     requestError.status = response.status;
+    requestError.code = detail?.code || data?.code || null;
+    requestError.kind = "http";
     throw requestError;
   }
 
@@ -219,12 +226,19 @@ export async function predictPalmImage(
   imageFile,
   inputSource = "gallery",
   location = null,
+  clientRequestId = null,
 ) {
   const formData = new FormData();
 
   formData.append("file", imageFile);
 
   formData.append("input_source", inputSource);
+
+  const normalizedClientRequestId = String(clientRequestId || "").trim();
+
+  if (normalizedClientRequestId) {
+    formData.append("client_request_id", normalizedClientRequestId);
+  }
 
   const latitude = Number(location?.latitude);
   const longitude = Number(location?.longitude);

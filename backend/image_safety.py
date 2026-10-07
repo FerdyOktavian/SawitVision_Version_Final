@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import sys
 from pathlib import Path
 from typing import Any
@@ -34,6 +35,24 @@ async def measure_upload_size(
             total += len(chunk)
             if total > max_bytes:
                 raise UploadTooLargeError
+    finally:
+        await upload.seek(0)
+
+
+async def sha256_upload(
+    upload: Any,
+    *,
+    chunk_size: int = UPLOAD_READ_CHUNK_BYTES,
+) -> str:
+    """Hash an UploadFile in bounded chunks and restore its file position."""
+    digest = hashlib.sha256()
+    try:
+        await upload.seek(0)
+        while True:
+            chunk = await upload.read(chunk_size)
+            if not chunk:
+                return digest.hexdigest()
+            digest.update(chunk)
     finally:
         await upload.seek(0)
 

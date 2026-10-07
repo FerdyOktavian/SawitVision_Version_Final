@@ -9,6 +9,7 @@ import LoginPage from "./pages/LoginPage";
 import RegisterPage from "./pages/RegisterPage";
 import ForgotAccountPage from "./pages/ForgotAccountPage";
 import PredictionPage from "./pages/PredictionPage";
+import SavedPhotosPage from "./pages/SavedPhotosPage";
 import HistoryPage from "./pages/HistoryPage";
 import ProfilePage from "./pages/ProfilePage";
 import AboutPage from "./pages/AboutPage";
@@ -30,6 +31,7 @@ import "./styles/home.css";
 import "./styles/navigation.css";
 import "./styles/footer.css";
 import "./styles/prediction.css";
+import "./styles/saved-photos.css";
 import "./styles/history.css";
 import "./styles/profile.css";
 import "./styles/about.css";
@@ -40,6 +42,7 @@ const ACTIVE_PAGE_KEY = "sawitvision_v3_active_page";
 const VALID_PAGES = [
   "home",
   "prediction",
+  "saved-photos",
   "history",
   "profile",
   "about",
@@ -227,7 +230,22 @@ function App() {
     }
 
     if (activePage === "prediction") {
-      return <PredictionPage onOpenHistory={() => handleNavigate("history")} />;
+      return (
+        <PredictionPage
+          currentUser={currentUser}
+          onOpenHistory={() => handleNavigate("history")}
+          onOpenSavedPhotos={() => handleNavigate("saved-photos")}
+        />
+      );
+    }
+
+    if (activePage === "saved-photos") {
+      return (
+        <SavedPhotosPage
+          currentUser={currentUser}
+          onBack={() => handleNavigate("prediction")}
+        />
+      );
     }
 
     if (activePage === "history") {
@@ -354,7 +372,7 @@ function App() {
       {activePage !== "admin" && <AppFooter />}
 
       <BottomNav
-        activePage={activePage}
+        activePage={activePage === "saved-photos" ? "prediction" : activePage}
         onNavigate={handleNavigate}
         currentUser={currentUser}
       />

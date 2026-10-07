@@ -12,6 +12,19 @@
   margin-bottom: var(--space-4);
 }
 
+.prediction-v2-saved-count {
+  margin-bottom: var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.prediction-v2-saved-count > svg { flex: 0 0 auto; color: var(--color-primary); }
+.prediction-v2-saved-count-copy { min-width: 0; flex: 1; }
+.prediction-v2-saved-count b { color: var(--color-text-strong); font-size: var(--font-size-small); }
+.prediction-v2-saved-count p { margin: 2px 0 0; color: var(--color-text-muted); font-size: var(--font-size-caption); }
+
 .prediction-v2-tips-card {
   margin-bottom: var(--space-4);
   padding: var(--space-3) var(--space-4);
@@ -118,11 +131,14 @@ video.prediction-v2-camera-media { transition: transform var(--transition-base);
 .prediction-v2-reset-zoom { white-space: nowrap; }
 
 .prediction-v2-button-grid,
+.prediction-v2-preview-actions,
 .prediction-v2-result-actions {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--space-2);
 }
+
+.prediction-v2-preview-actions { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 
 .prediction-v2-file-info {
   min-width: 0;
@@ -302,6 +318,8 @@ video.prediction-v2-camera-media { transition: transform var(--transition-base);
 @media (max-width: 479px) {
   .prediction-v2-page { width: min(calc(100% - 1.5rem), var(--container-md)); padding-top: var(--space-4); }
   .prediction-v2-camera-card { padding: var(--space-2); }
+  .prediction-v2-saved-count { align-items: flex-start; flex-wrap: wrap; }
+  .prediction-v2-saved-count .ui-button { width: 100%; }
   .prediction-v2-camera-frame { min-height: 11rem; }
   .prediction-v2-zoom-panel { grid-template-columns: auto 1fr auto; }
   .prediction-v2-reset-zoom { grid-column: 1 / -1; }
@@ -310,6 +328,7 @@ video.prediction-v2-camera-media { transition: transform var(--transition-base);
   }
   .prediction-v2-page.is-camera-live .prediction-v2-reset-zoom { grid-column: auto; }
   .prediction-v2-button-grid,
+  .prediction-v2-preview-actions,
   .prediction-v2-result-actions { grid-template-columns: 1fr; }
   .prediction-v2-count-grid { grid-template-columns: 1fr; }
   .prediction-v2-count-card { display: flex; align-items: center; justify-content: space-between; }

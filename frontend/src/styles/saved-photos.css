@@ -1,0 +1,249 @@
+.saved-photos-page {
+  width: min(calc(100% - 2rem), var(--container-lg));
+  margin: 0 auto;
+  padding: var(--space-6) 0 var(--space-12);
+  display: grid;
+  gap: var(--space-4);
+}
+
+.saved-photos-header { margin-bottom: var(--space-2); }
+.saved-photos-back-icon { transform: rotate(180deg); }
+
+.saved-photos-summary {
+  padding: var(--space-4);
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-3);
+}
+
+.saved-photos-summary > div {
+  min-width: 0;
+  padding: var(--space-3);
+  display: grid;
+  gap: var(--space-1);
+  border-radius: var(--radius-control);
+  background: var(--color-surface);
+}
+
+.saved-photos-summary span {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-caption);
+}
+
+.saved-photos-summary strong {
+  color: var(--color-text-strong);
+  font-size: var(--font-size-title-sm);
+}
+
+.saved-photos-selection {
+  padding: var(--space-3) var(--space-4);
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.saved-photos-select-all,
+.saved-photo-checkbox {
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--color-text-strong);
+  font-size: var(--font-size-small);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.saved-photos-select-all input,
+.saved-photo-checkbox input {
+  width: 1.2rem;
+  height: 1.2rem;
+  margin: 0;
+  accent-color: var(--color-primary);
+}
+
+.saved-photos-selection-count {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-caption);
+  white-space: nowrap;
+}
+
+.saved-photos-selection-actions {
+  margin-left: auto;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+
+.saved-photos-progress-detail {
+  display: block;
+  margin-top: var(--space-1);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-caption);
+}
+
+.saved-photos-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+  gap: var(--space-4);
+}
+
+.saved-photo-card {
+  min-width: 0;
+  overflow: hidden;
+  padding: 0;
+  display: grid;
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.saved-photo-card.is-selected {
+  border-color: var(--color-primary);
+  box-shadow: var(--focus-ring);
+}
+
+.saved-photo-image-wrap {
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  position: relative;
+  overflow: hidden;
+  background: var(--color-image-stage);
+}
+
+.saved-photos-thumbnail {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: contain;
+}
+
+.saved-photos-thumbnail-fallback {
+  width: 100%;
+  height: 100%;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: var(--space-2);
+  color: var(--color-image-stage-text);
+  font-size: var(--font-size-caption);
+}
+
+.saved-photo-checkbox {
+  width: 44px;
+  min-height: 44px;
+  position: absolute;
+  top: var(--space-2);
+  left: var(--space-2);
+  justify-content: center;
+  border-radius: var(--radius-control);
+  background: var(--color-image-overlay);
+}
+
+.saved-photo-checkbox input { accent-color: var(--color-accent); }
+
+.saved-photo-card-body {
+  padding: var(--space-3);
+  display: grid;
+  gap: var(--space-3);
+}
+
+.saved-photo-card-heading {
+  min-width: 0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.saved-photo-card-heading strong {
+  color: var(--color-text-strong);
+  font-size: var(--font-size-small);
+  line-height: var(--line-height-body);
+}
+
+.saved-photo-meta {
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-2);
+}
+
+.saved-photo-meta div {
+  min-width: 0;
+  padding: var(--space-2);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-subtle);
+}
+
+.saved-photo-meta dt {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-caption);
+}
+
+.saved-photo-meta dd {
+  margin: var(--space-1) 0 0;
+  color: var(--color-text-strong);
+  font-size: var(--font-size-caption);
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.saved-photo-error {
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  border-left: 3px solid var(--color-warning);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-subtle);
+  color: var(--color-text);
+  font-size: var(--font-size-caption);
+  line-height: var(--line-height-body);
+}
+
+.saved-photo-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.saved-photos-delete-dialog { display: grid; gap: var(--space-3); }
+.saved-photos-delete-dialog p { margin: 0; color: var(--color-text); line-height: var(--line-height-body); }
+.saved-photos-delete-dialog p:first-child { color: var(--color-text-strong); font-weight: 700; }
+.saved-photos-delete-actions { display: flex; justify-content: flex-end; gap: var(--space-2); }
+
+.saved-photos-page .sr-only {
+  width: 1px;
+  height: 1px;
+  position: absolute;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+}
+
+@media (max-width: 767px) {
+  .saved-photos-selection { align-items: stretch; flex-direction: column; }
+  .saved-photos-selection-count { white-space: normal; }
+  .saved-photos-selection-actions { width: 100%; margin-left: 0; }
+  .saved-photos-selection-actions .ui-button { flex: 1 1 12rem; }
+  .saved-photo-meta { grid-template-columns: 1fr; }
+  .saved-photo-actions .ui-button { flex: 1 1 9rem; }
+}
+
+@media (max-width: 479px) {
+  .saved-photos-page {
+    width: min(calc(100% - 1.5rem), var(--container-lg));
+    padding-top: var(--space-4);
+  }
+  .saved-photos-header { align-items: stretch; flex-direction: column; }
+  .saved-photos-header .ui-page-header__actions,
+  .saved-photos-header .ui-button { width: 100%; }
+  .saved-photos-summary,
+  .saved-photos-grid { grid-template-columns: 1fr; }
+  .saved-photos-selection-actions { display: grid; grid-template-columns: 1fr; }
+  .saved-photos-delete-actions { display: grid; grid-template-columns: 1fr; }
+}
+
+@media (min-width: 1024px) {
+  .saved-photos-page { padding-top: var(--space-8); }
+  .saved-photos-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
