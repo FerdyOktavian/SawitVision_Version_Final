@@ -765,6 +765,40 @@
   cursor: pointer;
 }
 
+.admin-report-select-all {
+  min-width: 0;
+  min-height: 3.5rem;
+  padding: var(--space-2) var(--space-3);
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  border: 1px solid var(--color-primary-border);
+  border-radius: var(--radius-control);
+  background: var(--color-primary-soft);
+  cursor: pointer;
+}
+
+.admin-report-select-all input {
+  width: 1.125rem;
+  height: 1.125rem;
+  flex: 0 0 auto;
+  accent-color: var(--color-primary);
+}
+
+.admin-report-select-all > span {
+  min-width: 0;
+  display: grid;
+  gap: var(--space-1);
+}
+
+.admin-report-select-all strong {
+  color: var(--color-text-strong);
+}
+
+.admin-report-select-all small {
+  color: var(--color-text-muted);
+}
+
 .admin-report-user-options {
   max-height: 18rem;
   overflow-y: auto;
@@ -817,6 +851,7 @@
 
 .admin-report-selected-users__header button:focus-visible,
 .admin-report-user-chip button:focus-visible,
+.admin-report-select-all input:focus-visible,
 .admin-report-user-options input:focus-visible,
 .admin-report-user-search input:focus-visible {
   outline: none;

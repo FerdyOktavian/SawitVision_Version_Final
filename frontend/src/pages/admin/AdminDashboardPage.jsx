@@ -442,6 +442,20 @@ function AdminDashboardPage({ currentUser }) {
     ));
   };
 
+  const toggleAllReportUsers = (visibleUsers, allVisibleUsersSelected) => {
+    const visibleUserIds = new Set(visibleUsers.map((user) => user.id));
+
+    setSelectedReportUsers((current) => {
+      if (allVisibleUsersSelected) {
+        return current.filter((user) => !visibleUserIds.has(user.id));
+      }
+
+      const selectedById = new Map(current.map((user) => [user.id, user]));
+      visibleUsers.forEach((user) => selectedById.set(user.id, user));
+      return [...selectedById.values()];
+    });
+  };
+
   if (!isAdmin) {
     return (
       <main className="admin-page admin-page--denied">
@@ -524,6 +538,7 @@ function AdminDashboardPage({ currentUser }) {
           onUsersSearch={loadReportUsers}
           selectedUsers={selectedReportUsers}
           onToggleUser={toggleReportUser}
+          onToggleAllUsers={toggleAllReportUsers}
           onRemoveUser={(userId) => setSelectedReportUsers((current) => (
             current.filter((user) => user.id !== userId)
           ))}

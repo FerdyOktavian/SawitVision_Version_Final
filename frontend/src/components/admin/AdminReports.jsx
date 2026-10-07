@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 import Button from "../ui/Button";
 import Card from "../ui/Card";
 import Icon from "../ui/Icon";
@@ -13,11 +14,27 @@ function AdminReports({
   onUsersSearch,
   selectedUsers,
   onToggleUser,
+  onToggleAllUsers,
   onRemoveUser,
   onClearUsers,
   isLoadingUsers,
 }) {
   const selectedUserIds = new Set(selectedUsers.map((user) => user.id));
+  const selectedVisibleUserCount = users.reduce(
+    (total, user) => total + (selectedUserIds.has(user.id) ? 1 : 0),
+    0,
+  );
+  const allVisibleUsersSelected = users.length > 0
+    && selectedVisibleUserCount === users.length;
+  const someVisibleUsersSelected = selectedVisibleUserCount > 0
+    && !allVisibleUsersSelected;
+  const selectAllUsersRef = useRef(null);
+
+  useEffect(() => {
+    if (selectAllUsersRef.current) {
+      selectAllUsersRef.current.indeterminate = someVisibleUsersSelected;
+    }
+  }, [someVisibleUsersSelected]);
 
   return (
     <section className="admin-section" aria-labelledby="admin-reports-title">
@@ -113,7 +130,7 @@ function AdminReports({
               </span>
               {selectedUsers.length > 0 && (
                 <button type="button" onClick={onClearUsers}>
-                  Pilih semua pengguna
+                  Hapus semua pilihan
                 </button>
               )}
             </div>
@@ -135,6 +152,24 @@ function AdminReports({
               </div>
             )}
           </div>
+
+          <label className="admin-report-select-all">
+            <input
+              ref={selectAllUsersRef}
+              type="checkbox"
+              checked={allVisibleUsersSelected}
+              onChange={() => onToggleAllUsers(users, allVisibleUsersSelected)}
+              disabled={isLoadingUsers || users.length === 0}
+            />
+            <span>
+              <strong>Pilih semua pengguna</strong>
+              <small>
+                {usersSearch.trim()
+                  ? `Berlaku untuk ${users.length} hasil pencarian saat ini.`
+                  : `Berlaku untuk ${users.length} pengguna yang dimuat.`}
+              </small>
+            </span>
+          </label>
 
           <div className="admin-report-user-options" aria-label="Hasil pencarian pengguna">
             {isLoadingUsers ? (
