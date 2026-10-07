@@ -1,6 +1,6 @@
 from datetime import date, datetime
 import logging
-from typing import Optional
+from typing import List, Optional
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -112,6 +112,10 @@ def export_admin_predictions_excel(
         None,
         description="Filter berdasarkan UUID user",
     ),
+    user_ids: Optional[List[str]] = Query(
+        None,
+        description="Filter berdasarkan satu atau lebih UUID user",
+    ),
     predicted_class: Optional[str] = Query(
         None,
         description=(
@@ -133,11 +137,15 @@ def export_admin_predictions_excel(
         )
 
     try:
+        selected_user_ids = list(dict.fromkeys([
+            *[value.strip() for value in (user_ids or []) if value.strip()],
+            *([user_id.strip()] if user_id and user_id.strip() else []),
+        ]))
         data = get_admin_prediction_report_data(
             db=db,
             start_date=start_date,
             end_date=end_date,
-            user_id=user_id,
+            user_ids=selected_user_ids or None,
             predicted_class=predicted_class,
         )
         buffer = build_admin_report_workbook(data)

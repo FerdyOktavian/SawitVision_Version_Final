@@ -65,6 +65,11 @@ function AdminDashboardPage({ currentUser }) {
   const [isCleaningStorage, setIsCleaningStorage] = useState(false);
   const [isCleaningLogs, setIsCleaningLogs] = useState(false);
   const [isDownloadingReport, setIsDownloadingReport] = useState(false);
+  const [reportUsers, setReportUsers] = useState([]);
+  const [reportUsersSearch, setReportUsersSearch] = useState("");
+  const [selectedReportUsers, setSelectedReportUsers] = useState([]);
+  const [isLoadingReportUsers, setIsLoadingReportUsers] = useState(false);
+  const reportUsersSearchRef = useRef("");
   const [errorMessage, setErrorMessage] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
   const [confirmation, setConfirmation] = useState(null);
@@ -204,6 +209,23 @@ function AdminDashboardPage({ currentUser }) {
     }
   }, []);
 
+  const loadReportUsers = useCallback(async () => {
+    setIsLoadingReportUsers(true);
+    setErrorMessage("");
+    try {
+      const response = await getAdminUsers({
+        limit: 100,
+        offset: 0,
+        search: reportUsersSearchRef.current.trim(),
+      });
+      setReportUsers(response?.data || []);
+    } catch (error) {
+      setErrorMessage(error.message || "Daftar pengguna laporan gagal dimuat.");
+    } finally {
+      setIsLoadingReportUsers(false);
+    }
+  }, []);
+
   useEffect(() => {
     if (!isAdmin) return;
 
@@ -221,10 +243,11 @@ function AdminDashboardPage({ currentUser }) {
       if (activeTab === "users") await loadUsers();
       if (activeTab === "activity") await loadActivity();
       if (activeTab === "storage") await loadStorage();
+      if (activeTab === "reports") await loadReportUsers();
     }
 
     loadActiveSection();
-  }, [activeTab, isAdmin, loadActivity, loadStorage, loadUsers]);
+  }, [activeTab, isAdmin, loadActivity, loadReportUsers, loadStorage, loadUsers]);
 
   const dashboardData = useMemo(() => {
     const predictionByClass = stats?.predictions?.by_class || {};
@@ -401,6 +424,7 @@ function AdminDashboardPage({ currentUser }) {
         startDate: reportFilter.start_date || undefined,
         endDate: reportFilter.end_date || undefined,
         predictedClass: reportFilter.predicted_class || undefined,
+        userIds: selectedReportUsers.map((user) => user.id),
       });
       setSuccessMessage("Laporan Excel berhasil diunduh.");
     } catch (error) {
@@ -408,6 +432,14 @@ function AdminDashboardPage({ currentUser }) {
     } finally {
       setIsDownloadingReport(false);
     }
+  };
+
+  const toggleReportUser = (user) => {
+    setSelectedReportUsers((current) => (
+      current.some((item) => item.id === user.id)
+        ? current.filter((item) => item.id !== user.id)
+        : [...current, user]
+    ));
   };
 
   if (!isAdmin) {
@@ -483,6 +515,20 @@ function AdminDashboardPage({ currentUser }) {
           onFilterChange={(field, value) => setReportFilter((current) => ({ ...current, [field]: value }))}
           onDownload={handleDownloadReport}
           isDownloading={isDownloadingReport}
+          users={reportUsers}
+          usersSearch={reportUsersSearch}
+          onUsersSearchChange={(value) => {
+            reportUsersSearchRef.current = value;
+            setReportUsersSearch(value);
+          }}
+          onUsersSearch={loadReportUsers}
+          selectedUsers={selectedReportUsers}
+          onToggleUser={toggleReportUser}
+          onRemoveUser={(userId) => setSelectedReportUsers((current) => (
+            current.filter((user) => user.id !== userId)
+          ))}
+          onClearUsers={() => setSelectedReportUsers([])}
+          isLoadingUsers={isLoadingReportUsers}
         />
       );
     }

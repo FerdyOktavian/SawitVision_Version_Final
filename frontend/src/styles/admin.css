@@ -664,6 +664,165 @@
   background: var(--color-surface);
 }
 
+.admin-report-user-filter {
+  min-width: 0;
+  margin: 0;
+  padding: var(--space-4);
+  display: grid;
+  gap: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+}
+
+.admin-report-user-filter legend,
+.admin-report-user-search label,
+.admin-report-selected-users__header > span {
+  color: var(--color-text-strong);
+  font-size: var(--font-size-small);
+  font-weight: 700;
+}
+
+.admin-report-user-filter__hint,
+.admin-report-user-options > p {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-small);
+}
+
+.admin-report-user-search {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.admin-report-user-search > div {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--space-2);
+}
+
+.admin-report-user-search input {
+  min-width: 0;
+  min-height: var(--control-height);
+  padding: 0 var(--space-3);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-control);
+  color: var(--color-text-strong);
+  background: var(--color-surface);
+}
+
+.admin-report-selected-users {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.admin-report-selected-users__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.admin-report-selected-users__header button {
+  padding: var(--space-1) 0;
+  border: 0;
+  color: var(--color-primary);
+  background: transparent;
+  font: inherit;
+  font-size: var(--font-size-small);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.admin-report-user-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.admin-report-user-chip {
+  min-height: 2rem;
+  padding: var(--space-1) var(--space-2) var(--space-1) var(--space-3);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  border: 1px solid var(--color-primary-border);
+  border-radius: var(--radius-pill);
+  color: var(--color-text-strong);
+  background: var(--color-primary-soft);
+  font-size: var(--font-size-small);
+}
+
+.admin-report-user-chip button {
+  width: 1.5rem;
+  height: 1.5rem;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  color: inherit;
+  background: transparent;
+  cursor: pointer;
+}
+
+.admin-report-user-options {
+  max-height: 18rem;
+  overflow-y: auto;
+  display: grid;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  background: var(--color-surface);
+}
+
+.admin-report-user-options > p {
+  padding: var(--space-4);
+}
+
+.admin-report-user-options label {
+  min-width: 0;
+  min-height: 3.5rem;
+  padding: var(--space-2) var(--space-3);
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  border-bottom: 1px solid var(--color-border);
+  cursor: pointer;
+}
+
+.admin-report-user-options label:last-child {
+  border-bottom: 0;
+}
+
+.admin-report-user-options input {
+  width: 1.125rem;
+  height: 1.125rem;
+  flex: 0 0 auto;
+  accent-color: var(--color-primary);
+}
+
+.admin-report-user-options label > span {
+  min-width: 0;
+  display: grid;
+  gap: var(--space-1);
+}
+
+.admin-report-user-options strong,
+.admin-report-user-options small {
+  overflow-wrap: anywhere;
+}
+
+.admin-report-user-options small {
+  color: var(--color-text-muted);
+}
+
+.admin-report-selected-users__header button:focus-visible,
+.admin-report-user-chip button:focus-visible,
+.admin-report-user-options input:focus-visible,
+.admin-report-user-search input:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
 .admin-report-actions {
   display: flex;
   justify-content: flex-end;
@@ -866,6 +1025,19 @@
 
   .admin-report-actions .ui-button {
     width: 100%;
+  }
+
+  .admin-report-user-search > div {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-report-user-search .ui-button {
+    width: 100%;
+  }
+
+  .admin-report-selected-users__header {
+    align-items: flex-start;
+    flex-direction: column;
   }
 
   .admin-confirmation-actions {

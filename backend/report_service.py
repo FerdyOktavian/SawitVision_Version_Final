@@ -253,20 +253,33 @@ def get_admin_prediction_report_data(
     start_date: Optional[date] = None,
     end_date: Optional[date] = None,
     user_id: Optional[str] = None,
+    user_ids: Optional[List[str]] = None,
     predicted_class: Optional[str] = None,
 ) -> Dict[str, Any]:
     filters = [
         "(:start_at IS NULL OR pr.created_at >= :start_at)",
         "(:end_at IS NULL OR pr.created_at <= :end_at)",
-        "(:user_id IS NULL OR pr.user_id = :user_id)",
         "(:predicted_class IS NULL OR pr.predicted_class = :predicted_class)",
     ]
     params = {
         "start_at": _start_datetime(start_date),
         "end_at": _end_datetime(end_date),
-        "user_id": user_id,
         "predicted_class": predicted_class,
     }
+
+    selected_user_ids = list(dict.fromkeys(
+        str(value).strip()
+        for value in (user_ids or ([user_id] if user_id else []))
+        if str(value).strip()
+    ))
+
+    if selected_user_ids:
+        user_placeholders = []
+        for index, selected_user_id in enumerate(selected_user_ids):
+            parameter_name = f"selected_user_id_{index}"
+            user_placeholders.append(f":{parameter_name}")
+            params[parameter_name] = selected_user_id
+        filters.append(f"pr.user_id IN ({', '.join(user_placeholders)})")
 
     rows = db.execute(
         text(f"""
@@ -379,6 +392,29 @@ def get_admin_prediction_report_data(
         for row in detection_rows
     ]
 
+    selected_user_names = []
+    if selected_user_ids:
+        selected_user_params = {
+            f"selected_user_id_{index}": selected_user_id
+            for index, selected_user_id in enumerate(selected_user_ids)
+        }
+        selected_user_rows = db.execute(
+            text(f"""
+                SELECT id, full_name
+                FROM public.users
+                WHERE id IN ({', '.join(user_placeholders)})
+            """),
+            selected_user_params,
+        ).fetchall()
+        names_by_id = {
+            str(row[0]): row[1] or "Tanpa nama"
+            for row in selected_user_rows
+        }
+        selected_user_names = [
+            names_by_id.get(selected_user_id, "Pengguna tidak ditemukan")
+            for selected_user_id in selected_user_ids
+        ]
+
     user_count = db.execute(
         text("SELECT COUNT(*) FROM users WHERE role = 'user'")
     ).scalar()
@@ -392,7 +428,9 @@ def get_admin_prediction_report_data(
         "detections": detections,
         "start_date": start_date,
         "end_date": end_date,
-        "selected_user_id": user_id,
+        "selected_user_id": selected_user_ids[0] if len(selected_user_ids) == 1 else None,
+        "selected_user_ids": selected_user_ids,
+        "selected_user_names": selected_user_names,
         "selected_class": predicted_class,
         "total_registered_users": int(user_count or 0),
         "total_active_users": int(active_user_count or 0),
@@ -1591,7 +1629,10 @@ def build_admin_report_workbook(data: Dict[str, Any]) -> io.BytesIO:
             CLASS_LABELS.get(data["selected_class"], "Semua kelas")
             if data["selected_class"] else "Semua kelas",
         ),
-        ("Filter User", data["selected_user_id"] or "Semua user"),
+        (
+            "Filter User",
+            ", ".join(data.get("selected_user_names", [])) or "Semua user",
+        ),
     ]
 
     for idx, (label, value) in enumerate(info_rows, start=5):

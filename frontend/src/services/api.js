@@ -437,6 +437,7 @@ export async function downloadAdminPredictionReport({
   startDate,
   endDate,
   userId,
+  userIds = [],
   predictedClass,
 } = {}) {
   const token = getAccessToken();
@@ -454,6 +455,12 @@ export async function downloadAdminPredictionReport({
   if (userId) {
     params.set("user_id", userId);
   }
+
+  userIds.forEach((selectedUserId) => {
+    if (selectedUserId) {
+      params.append("user_ids", selectedUserId);
+    }
+  });
 
   if (predictedClass) {
     params.set(
