@@ -215,6 +215,11 @@ function PredictionPage({ currentUser, onOpenHistory, onOpenSavedPhotos }) {
   const restoreCameraTriggerFocusRef = useRef(false);
   const resultLocationSaveRef = useRef(false);
   const localSaveLockRef = useRef(false);
+  const savedPhotoLocationPrefetchRef = useRef({
+    file: null,
+    promise: null,
+    result: null,
+  });
 
   const [mode, setMode] = useState("camera");
   const [cameraActive, setCameraActive] = useState(false);
@@ -247,6 +252,9 @@ function PredictionPage({ currentUser, onOpenHistory, onOpenSavedPhotos }) {
   });
   const [isSavingPhoto, setIsSavingPhoto] = useState(false);
   const [localSaveFeedback, setLocalSaveFeedback] = useState(null);
+  const [isDefinitelyOffline, setIsDefinitelyOffline] = useState(
+    () => globalThis.navigator?.onLine === false,
+  );
   const ownerUserId = String(currentUser?.id || "").trim();
   const hasCurrentOwnerSummary =
     savedPhotoSummary.ownerUserId === ownerUserId;
@@ -427,6 +435,67 @@ function PredictionPage({ currentUser, onOpenHistory, onOpenSavedPhotos }) {
     }
   };
 
+  const invalidateSavedPhotoLocationPrefetch = () => {
+    savedPhotoLocationPrefetchRef.current = {
+      file: null,
+      promise: null,
+      result: null,
+    };
+  };
+
+  const startSavedPhotoLocationPrefetch = (photoFile, { force = false } = {}) => {
+    const currentRequest = savedPhotoLocationPrefetchRef.current;
+
+    if (!force && currentRequest.file === photoFile && currentRequest.promise) {
+      return currentRequest.promise;
+    }
+
+    const request = {
+      file: photoFile,
+      promise: null,
+      result: null,
+    };
+
+    request.promise = captureOptionalLocation()
+      .catch(() => ({
+        ok: false,
+        status: "unavailable",
+        errorCode: null,
+        location: null,
+      }))
+      .then((locationResult) => {
+        if (savedPhotoLocationPrefetchRef.current === request) {
+          request.result = locationResult;
+        }
+
+        return locationResult;
+      });
+
+    savedPhotoLocationPrefetchRef.current = request;
+    return request.promise;
+  };
+
+  const getLocationForPhoto = (
+    photoFile,
+    { retryResolvedFailure = false } = {},
+  ) => {
+    const currentRequest = savedPhotoLocationPrefetchRef.current;
+
+    if (currentRequest.file !== photoFile || !currentRequest.promise) {
+      return startSavedPhotoLocationPrefetch(photoFile);
+    }
+
+    if (
+      retryResolvedFailure
+      && currentRequest.result
+      && !currentRequest.result.ok
+    ) {
+      return startSavedPhotoLocationPrefetch(photoFile, { force: true });
+    }
+
+    return currentRequest.promise;
+  };
+
   useEffect(() => {
     isMountedRef.current = true;
 
@@ -438,8 +507,36 @@ function PredictionPage({ currentUser, onOpenHistory, onOpenSavedPhotos }) {
         cameraStreamRef.current.getTracks().forEach((track) => track.stop());
         cameraStreamRef.current = null;
       }
+
+      invalidateSavedPhotoLocationPrefetch();
     };
   }, []);
+
+  useEffect(() => {
+    const markOnline = () => setIsDefinitelyOffline(false);
+    const markOffline = () => setIsDefinitelyOffline(true);
+
+    globalThis.addEventListener?.("online", markOnline);
+    globalThis.addEventListener?.("offline", markOffline);
+
+    return () => {
+      globalThis.removeEventListener?.("online", markOnline);
+      globalThis.removeEventListener?.("offline", markOffline);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (localSaveFeedback?.tone !== "success") return undefined;
+
+    const feedback = localSaveFeedback;
+    const timeoutId = globalThis.setTimeout(() => {
+      setLocalSaveFeedback((currentFeedback) =>
+        currentFeedback === feedback ? null : currentFeedback
+      );
+    }, 4500);
+
+    return () => globalThis.clearTimeout(timeoutId);
+  }, [localSaveFeedback]);
 
   useEffect(
     () => () => {
@@ -548,6 +645,7 @@ function PredictionPage({ currentUser, onOpenHistory, onOpenSavedPhotos }) {
     restoreCameraTriggerFocusRef.current = false;
     stopCamera();
     clearPreviewUrl();
+    invalidateSavedPhotoLocationPrefetch();
 
     setMode(selectedMode);
     setFile(null);
@@ -575,6 +673,7 @@ function PredictionPage({ currentUser, onOpenHistory, onOpenSavedPhotos }) {
     setResult(null);
     setIsOpeningCamera(true);
     clearPreviewUrl();
+    invalidateSavedPhotoLocationPrefetch();
     setFile(null);
     setPreview("");
     setCaptureMetadata(createEmptyCaptureMetadata("camera"));
@@ -707,6 +806,7 @@ function PredictionPage({ currentUser, onOpenHistory, onOpenSavedPhotos }) {
     setFile(capturedFile);
     setPreview(URL.createObjectURL(capturedFile));
     setCaptureMetadata(createCaptureMetadata("camera"));
+    startSavedPhotoLocationPrefetch(capturedFile);
     setResult(null);
     setError("");
     resetLocationStatus();
@@ -722,6 +822,7 @@ function PredictionPage({ currentUser, onOpenHistory, onOpenSavedPhotos }) {
 
   const retakePhoto = async () => {
     clearPreviewUrl();
+    invalidateSavedPhotoLocationPrefetch();
 
     setFile(null);
     setPreview("");
@@ -761,6 +862,7 @@ function PredictionPage({ currentUser, onOpenHistory, onOpenSavedPhotos }) {
     setFile(selected);
     setPreview(URL.createObjectURL(selected));
     setCaptureMetadata(createCaptureMetadata("gallery"));
+    startSavedPhotoLocationPrefetch(selected);
     setResult(null);
     setError("");
     resetLocationStatus();
@@ -774,6 +876,7 @@ function PredictionPage({ currentUser, onOpenHistory, onOpenSavedPhotos }) {
   const resetInput = () => {
     stopCamera();
     clearPreviewUrl();
+    invalidateSavedPhotoLocationPrefetch();
 
     setFile(null);
     setPreview("");
@@ -823,6 +926,13 @@ function PredictionPage({ currentUser, onOpenHistory, onOpenSavedPhotos }) {
       return;
     }
 
+    if (isDefinitelyOffline) {
+      setError("Prediksi memerlukan koneksi internet.");
+      return;
+    }
+
+    const predictionFile = file;
+
     setIsPreparingLocation(true);
     setError("");
     setResult(null);
@@ -831,7 +941,10 @@ function PredictionPage({ currentUser, onOpenHistory, onOpenSavedPhotos }) {
     let predictionLocation = null;
 
     try {
-      const locationResult = await captureOptionalLocation();
+      const locationResult = await getLocationForPhoto(
+        predictionFile,
+        { retryResolvedFailure: true },
+      );
       setLocationStatus(locationResult.status);
 
       if (locationResult.location) {
@@ -897,11 +1010,14 @@ function PredictionPage({ currentUser, onOpenHistory, onOpenSavedPhotos }) {
     setIsSavingPhoto(true);
     setLocalSaveFeedback(null);
 
+    const fileToSave = file;
+    const captureMetadataToSave = captureMetadata;
+
     try {
       let savedLocation = null;
 
       try {
-        const locationResult = await captureOptionalLocation();
+        const locationResult = await getLocationForPhoto(fileToSave);
 
         if (locationResult.ok && locationResult.location) {
           savedLocation = {
@@ -916,16 +1032,16 @@ function PredictionPage({ currentUser, onOpenHistory, onOpenSavedPhotos }) {
 
       await saveSavedPhoto(
         createSavedPhotoRecord({
-          file,
+          file: fileToSave,
           ownerUserId,
-          captureMetadata,
+          captureMetadata: captureMetadataToSave,
           location: savedLocation,
         }),
       );
 
       if (isMountedRef.current) {
         setLocalSaveFeedback({
-          file,
+          file: fileToSave,
           ownerUserId,
           tone: "success",
           message: "Foto berhasil disimpan di perangkat.",
@@ -954,7 +1070,7 @@ function PredictionPage({ currentUser, onOpenHistory, onOpenSavedPhotos }) {
     } catch (saveError) {
       if (isMountedRef.current) {
         setLocalSaveFeedback({
-          file,
+          file: fileToSave,
           ownerUserId,
           tone: "error",
           message: getLocalSaveErrorMessage(saveError),
@@ -1252,37 +1368,55 @@ function PredictionPage({ currentUser, onOpenHistory, onOpenSavedPhotos }) {
         {preview && (
           <>
             <div className="prediction-v2-preview-actions">
-              <Button
-                type="button"
-                variant="primary"
-                onClick={runPrediction}
-                disabled={isBusy}
-              >
-                {loading
-                  ? "Menganalisis..."
-                  : isPreparingLocation
-                    ? "Menyiapkan lokasi..."
-                    : "Mulai Prediksi"}
-              </Button>
+              <div className="prediction-v2-preview-action">
+                <Button
+                  type="button"
+                  variant="primary"
+                  onClick={runPrediction}
+                  disabled={isBusy || isDefinitelyOffline}
+                >
+                  {loading
+                    ? "Menganalisis..."
+                    : isPreparingLocation
+                      ? "Menyiapkan lokasi..."
+                      : "Mulai Prediksi"}
+                </Button>
+                {isDefinitelyOffline && (
+                  <small
+                    className="prediction-v2-action-note is-warning"
+                    role="status"
+                  >
+                    Prediksi memerlukan koneksi internet.
+                  </small>
+                )}
+              </div>
 
-              <Button
-                type="button"
-                variant="secondary"
-                onClick={savePhotoLocally}
-                disabled={isBusy}
-                aria-busy={isSavingPhoto}
-              >
-                {isSavingPhoto ? "Menyimpan..." : "Simpan Foto"}
-              </Button>
+              <div className="prediction-v2-preview-action">
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={savePhotoLocally}
+                  disabled={isBusy}
+                  aria-busy={isSavingPhoto}
+                >
+                  {isSavingPhoto ? "Menyimpan..." : "Simpan Foto"}
+                </Button>
+                <small className="prediction-v2-action-note">
+                  Foto akan disimpan sementara di perangkat dan dapat diprediksi
+                  nanti melalui Foto Tersimpan.
+                </small>
+              </div>
 
-              <Button
-                type="button"
-                variant="secondary"
-                onClick={mode === "camera" ? retakePhoto : openGallery}
-                disabled={isBusy}
-              >
-                {mode === "camera" ? "Foto Ulang" : "Ganti Foto"}
-              </Button>
+              <div className="prediction-v2-preview-action">
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={mode === "camera" ? retakePhoto : openGallery}
+                  disabled={isBusy}
+                >
+                  {mode === "camera" ? "Foto Ulang" : "Ganti Foto"}
+                </Button>
+              </div>
             </div>
 
             <Button
@@ -1314,13 +1448,28 @@ function PredictionPage({ currentUser, onOpenHistory, onOpenSavedPhotos }) {
           </div>
         )}
 
-        {visibleLocalSaveFeedback && (
+        {visibleLocalSaveFeedback?.tone === "error" && (
           <Alert
-            tone={visibleLocalSaveFeedback.tone}
-            role={visibleLocalSaveFeedback.tone === "error" ? "alert" : "status"}
+            tone="error"
+            role="alert"
           >
             {visibleLocalSaveFeedback.message}
           </Alert>
+        )}
+
+        {visibleLocalSaveFeedback?.tone === "success" && (
+          <div
+            className="prediction-v2-save-toast"
+            role="status"
+            aria-live="polite"
+            aria-atomic="true"
+          >
+            <Icon name="check" size={22} />
+            <div>
+              <strong>Foto berhasil disimpan.</strong>
+              <span>Tersedia di Foto Tersimpan.</span>
+            </div>
+          </div>
         )}
 
         <div className="prediction-v2-location-note" role="note">
@@ -1330,8 +1479,8 @@ function PredictionPage({ currentUser, onOpenHistory, onOpenSavedPhotos }) {
               Lokasi Pengambilan
             </b>
             <p>
-              Lokasi akan disimpan otomatis jika tersedia. Browser akan
-              meminta izin saat prediksi atau penyimpanan foto dimulai.
+              Lokasi opsional mulai disiapkan saat foto tersedia dan akan
+              disimpan bersama foto jika berhasil diperoleh.
             </p>
             {locationStatus !== "idle" && (
               <small
