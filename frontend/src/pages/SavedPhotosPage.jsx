@@ -8,6 +8,7 @@ import EmptyState from "../components/ui/EmptyState";
 import Icon from "../components/ui/Icon";
 import LoadingState from "../components/ui/LoadingState";
 import Modal from "../components/ui/Modal";
+import MaturityBadge from "../components/MaturityBadge";
 import PageHeader from "../components/ui/PageHeader";
 import { predictPalmImage } from "../services/api";
 import {
@@ -18,6 +19,10 @@ import {
   SAVED_PHOTO_ERROR_CODES,
   updateSavedPhotoStatus,
 } from "../services/savedPhotosDb";
+import {
+  formatConfidence,
+  formatMaturityLabel,
+} from "../utils/presentation";
 
 const STATUS_INFO = {
   saved: { label: "Tersimpan", tone: "success" },
@@ -58,6 +63,24 @@ function hasStrictPredictionSuccess(response) {
       || response?.history?.detection_details_saved === true
     ),
   );
+}
+
+function getPredictionResultSummary(response) {
+  const payload = response?.result && typeof response.result === "object"
+    ? response.result
+    : response;
+  const predictedClass = payload?.predicted_class || payload?.prediction || "";
+  const rawConfidence = payload?.confidence ?? payload?.confidence_score;
+  const hasConfidence = rawConfidence !== null
+    && rawConfidence !== undefined
+    && rawConfidence !== ""
+    && Number.isFinite(Number(rawConfidence));
+
+  return {
+    predictedClass,
+    classLabel: formatMaturityLabel(predictedClass),
+    confidence: hasConfidence ? formatConfidence(rawConfidence) : null,
+  };
 }
 
 function classifyPredictionError(error) {
@@ -204,7 +227,7 @@ function SavedPhotoThumbnail({ imageBlob, alt }) {
   );
 }
 
-function SavedPhotosPage({ currentUser, onBack }) {
+function SavedPhotosPage({ currentUser, onBack, onOpenHistory }) {
   const selectAllRef = useRef(null);
   const predictionRunRef = useRef(false);
   const ownerUserId = String(currentUser?.id || "").trim();
@@ -224,6 +247,7 @@ function SavedPhotosPage({ currentUser, onBack }) {
   const [isDeleting, setIsDeleting] = useState(false);
   const [operationError, setOperationError] = useState("");
   const [predictionNotice, setPredictionNotice] = useState(null);
+  const [singlePredictionResult, setSinglePredictionResult] = useState(null);
   const [predictionProgress, setPredictionProgress] = useState({
     active: false,
     current: 0,
@@ -253,6 +277,13 @@ function SavedPhotosPage({ currentUser, onBack }) {
   const selectedPhotos = predictablePhotos
     .filter((photo) => selectedIds.has(photo.id));
   const isPredicting = predictionProgress.active;
+  const visiblePredictionNotice = predictionNotice?.ownerUserId === ownerUserId
+    ? predictionNotice
+    : null;
+  const visibleSinglePredictionResult =
+    singlePredictionResult?.ownerUserId === ownerUserId
+      ? singlePredictionResult
+      : null;
 
   useEffect(() => {
     let cancelled = false;
@@ -545,6 +576,7 @@ function SavedPhotosPage({ currentUser, onBack }) {
             "Prediksi berhasil dan foto telah dipindahkan ke Riwayat, "
             + "tetapi ringkasan penyimpanan lokal gagal dimuat ulang."
           ),
+          result: getPredictionResultSummary(response),
         };
       }
 
@@ -553,6 +585,7 @@ function SavedPhotosPage({ currentUser, onBack }) {
         stop: false,
         tone: "success",
         message: "Prediksi berhasil. Foto telah dipindahkan ke Riwayat.",
+        result: getPredictionResultSummary(response),
       };
     }
 
@@ -620,6 +653,7 @@ function SavedPhotosPage({ currentUser, onBack }) {
     predictionRunRef.current = true;
     setOperationError("");
     setPredictionNotice(null);
+    setSinglePredictionResult(null);
     setPredictionProgress({
       active: true,
       current: 0,
@@ -691,32 +725,61 @@ function SavedPhotosPage({ currentUser, onBack }) {
       });
       predictionRunRef.current = false;
 
-      if (lastResult?.stop) {
-        setPredictionNotice({
-          tone: lastResult.tone,
-          message: lastResult.message,
-          summary,
+      if (queuedPhotos.length === 1 && lastResult?.success) {
+        setSinglePredictionResult({
+          ...lastResult.result,
+          ownerUserId,
         });
-      } else if (queuedPhotos.length === 1 && lastResult?.success) {
+
+        if (lastResult.stop) {
+          setPredictionNotice({
+            ownerUserId,
+            tone: lastResult.tone,
+            title: "Prediksi selesai",
+            message: lastResult.message,
+            summary,
+            successCount,
+          });
+        }
+      } else if (lastResult?.stop) {
         setPredictionNotice({
-          tone: "success",
+          ownerUserId,
+          tone: lastResult.tone,
+          title: "Proses prediksi berhenti",
           message: lastResult.message,
           summary,
+          successCount,
         });
       } else if (lastResult && !lastResult.success) {
         setPredictionNotice({
+          ownerUserId,
           tone: lastResult.tone,
+          title: "Prediksi belum selesai",
           message: lastResult.message,
           summary,
+          successCount,
         });
       } else {
         setPredictionNotice({
+          ownerUserId,
           tone: "success",
-          message: "Prediksi foto terpilih selesai.",
+          title: "Proses prediksi selesai",
+          message: "Foto yang berhasil diproses telah disimpan ke Riwayat.",
           summary,
+          successCount,
         });
       }
     }
+  };
+
+  const closeSinglePredictionResult = () => {
+    setSinglePredictionResult(null);
+  };
+
+  const openHistory = () => {
+    setSinglePredictionResult(null);
+    setPredictionNotice(null);
+    onOpenHistory?.();
   };
 
   const confirmDeletion = async () => {
@@ -847,15 +910,26 @@ function SavedPhotosPage({ currentUser, onBack }) {
             </Alert>
           )}
 
-          {!predictionProgress.active && predictionNotice && (
+          {!predictionProgress.active && visiblePredictionNotice && (
             <Alert
-              tone={predictionNotice.tone}
-              role={predictionNotice.tone === "error" ? "alert" : "status"}
+              tone={visiblePredictionNotice.tone}
+              role={visiblePredictionNotice.tone === "error" ? "alert" : "status"}
             >
-              <strong>{predictionNotice.message}</strong>
-              <span className="saved-photos-progress-detail">
-                {predictionNotice.summary}
+              <strong>{visiblePredictionNotice.title}</strong>
+              <span className="saved-photos-progress-message">
+                {visiblePredictionNotice.message}
               </span>
+              <span className="saved-photos-progress-detail">
+                {visiblePredictionNotice.summary}
+              </span>
+              {visiblePredictionNotice.successCount > 0 && (
+                <div className="saved-photos-notice-actions">
+                  <Button type="button" variant="ghost" size="sm" onClick={openHistory}>
+                    <Icon name="history" size={17} />
+                    Lihat Riwayat
+                  </Button>
+                </div>
+              )}
             </Alert>
           )}
 
@@ -1028,6 +1102,43 @@ function SavedPhotosPage({ currentUser, onBack }) {
           )}
         </>
       )}
+
+      <Modal
+        open={Boolean(visibleSinglePredictionResult)}
+        onClose={closeSinglePredictionResult}
+        title="Prediksi selesai"
+        eyebrow="Hasil Prediksi"
+        className="saved-photos-result-modal"
+      >
+        <div className="saved-photos-result-dialog">
+          <div className="saved-photos-result-summary">
+            <span>Hasil kematangan</span>
+            {visibleSinglePredictionResult?.predictedClass ? (
+              <MaturityBadge value={visibleSinglePredictionResult.predictedClass} />
+            ) : (
+              <strong>{visibleSinglePredictionResult?.classLabel}</strong>
+            )}
+            {visibleSinglePredictionResult?.confidence !== null && (
+              <p>
+                Keyakinan hasil <strong>{visibleSinglePredictionResult?.confidence}%</strong>
+              </p>
+            )}
+          </div>
+          <p>
+            Foto telah berhasil diproses dan disimpan ke Riwayat. Salinan lokal
+            telah dihapus dengan aman.
+          </p>
+          <div className="saved-photos-result-actions">
+            <Button type="button" variant="ghost" onClick={closeSinglePredictionResult}>
+              Tutup
+            </Button>
+            <Button type="button" onClick={openHistory} data-autofocus>
+              <Icon name="history" size={18} />
+              Lihat Riwayat
+            </Button>
+          </div>
+        </div>
+      </Modal>
 
       <Modal
         open={Boolean(deleteRequest)}

@@ -244,6 +244,7 @@ function App() {
         <SavedPhotosPage
           currentUser={currentUser}
           onBack={() => handleNavigate("prediction")}
+          onOpenHistory={() => handleNavigate("history")}
         />
       );
     }

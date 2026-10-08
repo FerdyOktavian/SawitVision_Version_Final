@@ -83,6 +83,18 @@
   font-size: var(--font-size-caption);
 }
 
+.saved-photos-progress-message {
+  display: block;
+  margin-top: var(--space-1);
+}
+
+.saved-photos-notice-actions {
+  margin-top: var(--space-3);
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
 .saved-photos-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -211,6 +223,53 @@
 .saved-photos-delete-dialog p:first-child { color: var(--color-text-strong); font-weight: 700; }
 .saved-photos-delete-actions { display: flex; justify-content: flex-end; gap: var(--space-2); }
 
+.saved-photos-result-modal { width: min(100%, 32rem); }
+
+.saved-photos-result-dialog {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.saved-photos-result-dialog > p {
+  margin: 0;
+  color: var(--color-text);
+  line-height: var(--line-height-body);
+}
+
+.saved-photos-result-summary {
+  padding: var(--space-4);
+  display: grid;
+  gap: var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  background: var(--color-surface-subtle);
+}
+
+.saved-photos-result-summary > span:first-child {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-caption);
+  font-weight: 700;
+}
+
+.saved-photos-result-summary > strong {
+  color: var(--color-text-strong);
+  font-size: var(--font-size-title-sm);
+}
+
+.saved-photos-result-summary p {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-small);
+}
+
+.saved-photos-result-summary p strong { color: var(--color-text-strong); }
+
+.saved-photos-result-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+
 .saved-photos-page .sr-only {
   width: 1px;
   height: 1px;
@@ -241,6 +300,8 @@
   .saved-photos-grid { grid-template-columns: 1fr; }
   .saved-photos-selection-actions { display: grid; grid-template-columns: 1fr; }
   .saved-photos-delete-actions { display: grid; grid-template-columns: 1fr; }
+  .saved-photos-result-actions { display: grid; grid-template-columns: 1fr; }
+  .saved-photos-result-actions .ui-button { width: 100%; }
 }
 
 @media (min-width: 1024px) {
