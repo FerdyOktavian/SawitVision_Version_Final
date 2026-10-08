@@ -193,7 +193,6 @@ function HistoryPage({ onStartPrediction, serverActionsUnavailable = false }) {
   const [stats, setStats] = useState(null);
   const [historyResultTotal, setHistoryResultTotal] = useState(null);
 
-  const [searchTerm, setSearchTerm] = useState("");
   const [classFilter, setClassFilter] = useState("all");
   const [dateFilterStart, setDateFilterStart] = useState("");
   const [dateFilterEnd, setDateFilterEnd] = useState("");
@@ -397,28 +396,12 @@ function HistoryPage({ onStartPrediction, serverActionsUnavailable = false }) {
   };
 
   const filteredItems = useMemo(() => {
-    const normalizedSearch = searchTerm.trim().toLowerCase();
-
     return historyItems.filter((item) => {
       const className = normalizeClassName(item.predicted_class);
 
-      const matchesClass = classFilter === "all" || className === classFilter;
-
-      const searchableText = [
-        CLASS_META[className]?.label || className,
-        item.input_source,
-        item.created_at,
-      ]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase();
-
-      const matchesSearch =
-        !normalizedSearch || searchableText.includes(normalizedSearch);
-
-      return matchesClass && matchesSearch;
+      return classFilter === "all" || className === classFilter;
     });
-  }, [historyItems, searchTerm, classFilter]);
+  }, [historyItems, classFilter]);
 
   const closePredictionDetail = () => {
     detailRequestRef.current += 1;
@@ -738,9 +721,6 @@ function HistoryPage({ onStartPrediction, serverActionsUnavailable = false }) {
     ? historyItems.length === HISTORY_PAGE_SIZE
     : currentPage < totalPages;
   const isPaginationBusy = isPageLoading || Boolean(deletingId);
-  const hasActivePageFilters = Boolean(
-    searchTerm.trim() || classFilter !== "all",
-  );
   const activeDateFilterSummary = formatDateFilterSummary(
     appliedDateFilter,
   );
@@ -891,46 +871,6 @@ function HistoryPage({ onStartPrediction, serverActionsUnavailable = false }) {
         )}
       </section>
 
-      <section className="history-toolbar">
-        <label className="history-search">
-          <span className="history-control-label">Cari riwayat</span>
-          <Icon name="scan" size={18} />
-          <input
-            type="search"
-            value={searchTerm}
-            onChange={(event) => setSearchTerm(event.target.value)}
-            placeholder="Cari lokasi atau hasil..."
-          />
-        </label>
-
-        <label className="history-filter">
-          <span className="history-control-label">Kematangan</span>
-          <select
-            value={classFilter}
-            onChange={(event) => setClassFilter(event.target.value)}
-          >
-            <option value="all">Semua kelas</option>
-            <option value="belum_masak">Belum Matang</option>
-            <option value="masak">Matang</option>
-            <option value="terlalu_masak">Terlalu Matang</option>
-          </select>
-        </label>
-
-        <Button
-          type="button"
-          variant="secondary"
-          onClick={loadHistory}
-          disabled={
-            isLoading
-            || isPaginationBusy
-            || serverActionsUnavailable
-          }
-        >
-          <Icon name="refresh" />
-          Muat ulang
-        </Button>
-      </section>
-
       <Card
         className="history-date-filter-card"
         aria-labelledby="history-date-filter-title"
@@ -938,9 +878,9 @@ function HistoryPage({ onStartPrediction, serverActionsUnavailable = false }) {
         <div className="history-date-filter-heading">
           <div>
             <p>Filter riwayat</p>
-            <h2 id="history-date-filter-title">Tanggal pemeriksaan</h2>
+            <h2 id="history-date-filter-title">Penyaringan hasil</h2>
           </div>
-          <p>Pilih salah satu tanggal atau gunakan rentang tanggal.</p>
+          <p>Pilih tanggal dan kelas kematangan yang ingin ditampilkan.</p>
         </div>
 
         <form
@@ -982,6 +922,18 @@ function HistoryPage({ onStartPrediction, serverActionsUnavailable = false }) {
               dateFilterError ? "history-filter-start-date-error" : undefined
             }
           />
+          <label className="history-filter">
+            <span className="history-control-label">Kematangan</span>
+            <select
+              value={classFilter}
+              onChange={(event) => setClassFilter(event.target.value)}
+            >
+              <option value="all">Semua kelas</option>
+              <option value="belum_masak">Belum Matang</option>
+              <option value="masak">Matang</option>
+              <option value="terlalu_masak">Terlalu Matang</option>
+            </select>
+          </label>
           <div className="history-date-filter-actions">
             <Button
               type="button"
@@ -1011,6 +963,19 @@ function HistoryPage({ onStartPrediction, serverActionsUnavailable = false }) {
               aria-busy={isPageLoading}
             >
               {isPageLoading ? "Menerapkan..." : "Terapkan"}
+            </Button>
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={loadHistory}
+              disabled={
+                isLoading
+                || isPaginationBusy
+                || serverActionsUnavailable
+              }
+            >
+              <Icon name="refresh" />
+              Muat ulang
             </Button>
           </div>
         </form>
@@ -1106,8 +1071,8 @@ function HistoryPage({ onStartPrediction, serverActionsUnavailable = false }) {
               ? "Riwayat belum dapat dimuat"
               : hasActiveDateFilter && historyItems.length === 0
                 ? "Tidak ada prediksi pada rentang tanggal ini"
-              : historyItems.length
-                ? "Tidak ada hasil yang cocok"
+              : historyItems.length && classFilter !== "all"
+                ? "Tidak ada hasil untuk kelas ini"
                 : "Belum ada riwayat"
           }
           description={
@@ -1115,8 +1080,8 @@ function HistoryPage({ onStartPrediction, serverActionsUnavailable = false }) {
               ? "Hubungkan perangkat ke server untuk memuat riwayat."
               : hasActiveDateFilter && historyItems.length === 0
                 ? "Pilih rentang lain atau reset filter untuk melihat seluruh riwayat."
-              : historyItems.length
-                ? "Ubah kata pencarian atau filter kematangan."
+              : historyItems.length && classFilter !== "all"
+                ? "Pilih kelas kematangan lain untuk melihat hasil pada halaman ini."
                 : "Mulai pemeriksaan TBS agar hasilnya tersimpan di halaman ini."
           }
           actionLabel={
@@ -1225,13 +1190,6 @@ function HistoryPage({ onStartPrediction, serverActionsUnavailable = false }) {
               ? `Menampilkan ${pageStart}–${pageEnd} dari ${historyTotal} riwayat.`
               : `Menampilkan ${historyItems.length} riwayat pada halaman ${currentPage}.`}
           </p>
-
-          {hasActivePageFilters && (
-            <p className="history-filter-scope">
-              {filteredItems.length} hasil cocok dari {historyItems.length} riwayat
-              pada halaman ini. Pencarian dan filter belum mencakup halaman lain.
-            </p>
-          )}
 
           {(canGoToPreviousPage || canGoToNextPage) && (
             <div className="history-pagination-controls">
