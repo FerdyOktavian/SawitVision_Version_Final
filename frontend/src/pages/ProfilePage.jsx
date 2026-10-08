@@ -25,14 +25,28 @@ function resolveUser(response) {
   return response?.user || response?.data || response || null;
 }
 
-function ProfilePage({ currentUser, onUserUpdated, onLogout }) {
+function ProfilePage({
+  currentUser,
+  onUserUpdated,
+  onLogout,
+  serverActionsUnavailable = false,
+}) {
   const currentUserRef = useRef(currentUser);
   const onUserUpdatedRef = useRef(onUserUpdated);
-  const [profile, setProfile] = useState(null);
-  const [fullName, setFullName] = useState("");
-  const [phoneNumber, setPhoneNumber] = useState("");
+  const initiallyServerUnavailableRef = useRef(serverActionsUnavailable);
+  const [profile, setProfile] = useState(() => (
+    serverActionsUnavailable ? currentUser : null
+  ));
+  const [fullName, setFullName] = useState(() => (
+    serverActionsUnavailable ? currentUser?.full_name || "" : ""
+  ));
+  const [phoneNumber, setPhoneNumber] = useState(() => (
+    serverActionsUnavailable ? currentUser?.phone_number || "" : ""
+  ));
   const [fieldErrors, setFieldErrors] = useState({});
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(
+    () => !serverActionsUnavailable,
+  );
   const [isSaving, setIsSaving] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -44,6 +58,10 @@ function ProfilePage({ currentUser, onUserUpdated, onLogout }) {
 
   useEffect(() => {
     let mounted = true;
+
+    if (initiallyServerUnavailableRef.current) {
+      return undefined;
+    }
 
     async function loadProfile() {
       setIsLoading(true);
@@ -113,6 +131,8 @@ function ProfilePage({ currentUser, onUserUpdated, onLogout }) {
 
   const handleSubmit = async (event) => {
     event.preventDefault();
+
+    if (serverActionsUnavailable) return;
     setMessage("");
     setFieldErrors({});
 
@@ -172,6 +192,8 @@ function ProfilePage({ currentUser, onUserUpdated, onLogout }) {
   };
 
   const handleDeleteAccount = async () => {
+    if (serverActionsUnavailable) return;
+
     setIsDeleting(true);
     setMessage("");
 
@@ -223,6 +245,12 @@ function ProfilePage({ currentUser, onUserUpdated, onLogout }) {
         title="Profil"
         description="Periksa identitas akun, perbarui informasi login, dan kelola sesi Anda."
       />
+
+      {serverActionsUnavailable && (
+        <Alert tone="warning" role="note">
+          Perubahan profil dan penghapusan akun memerlukan koneksi server.
+        </Alert>
+      )}
 
       <Card className="profile-identity" aria-labelledby="profile-identity-title">
         <div className="profile-avatar" aria-hidden="true">{initials}</div>
@@ -305,7 +333,10 @@ function ProfilePage({ currentUser, onUserUpdated, onLogout }) {
               >
                 Batalkan
               </Button>
-              <Button type="submit" disabled={!isDirty || isBusy}>
+              <Button
+                type="submit"
+                disabled={!isDirty || isBusy || serverActionsUnavailable}
+              >
                 <Icon name="check" size={18} />
                 {isSaving ? "Menyimpan..." : "Simpan perubahan"}
               </Button>
@@ -375,7 +406,7 @@ function ProfilePage({ currentUser, onUserUpdated, onLogout }) {
                 variant="danger"
                 block
                 onClick={() => setShowDeleteDialog(true)}
-                disabled={isBusy}
+                disabled={isBusy || serverActionsUnavailable}
               >
                 <Icon name="trash" size={18} />
                 Hapus akun
@@ -443,7 +474,7 @@ function ProfilePage({ currentUser, onUserUpdated, onLogout }) {
             variant="danger"
             className="profile-delete-confirm"
             onClick={handleDeleteAccount}
-            disabled={isDeleting}
+            disabled={isDeleting || serverActionsUnavailable}
           >
             <Icon name="trash" size={18} />
             {isDeleting ? "Menghapus akun..." : "Hapus akun"}

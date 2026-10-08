@@ -142,17 +142,20 @@ function getPaginationItems(currentPage, totalPages) {
   return items;
 }
 
-function HistoryPage({ onStartPrediction }) {
+function HistoryPage({ onStartPrediction, serverActionsUnavailable = false }) {
   const detailRequestRef = useRef(0);
   const historyListRef = useRef(null);
   const pageRequestInFlightRef = useRef(false);
+  const initiallyServerUnavailableRef = useRef(serverActionsUnavailable);
   const [historyItems, setHistoryItems] = useState([]);
   const [stats, setStats] = useState(null);
 
   const [searchTerm, setSearchTerm] = useState("");
   const [classFilter, setClassFilter] = useState("all");
 
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(
+    () => !serverActionsUnavailable,
+  );
   const [isPageLoading, setIsPageLoading] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [deletingId, setDeletingId] = useState("");
@@ -173,7 +176,7 @@ function HistoryPage({ onStartPrediction }) {
   const [locationLabelError, setLocationLabelError] = useState("");
 
   const loadHistory = async () => {
-    if (pageRequestInFlightRef.current) return;
+    if (pageRequestInFlightRef.current || serverActionsUnavailable) return;
 
     pageRequestInFlightRef.current = true;
     setIsPageLoading(true);
@@ -208,6 +211,10 @@ function HistoryPage({ onStartPrediction }) {
   useEffect(() => {
     let isCancelled = false;
 
+    if (initiallyServerUnavailableRef.current) {
+      return undefined;
+    }
+
     Promise.all([
       getPredictions({
         limit: HISTORY_PAGE_SIZE,
@@ -239,6 +246,8 @@ function HistoryPage({ onStartPrediction }) {
   }, []);
 
   const changeHistoryPage = async (nextPage) => {
+    if (serverActionsUnavailable) return;
+
     const historyTotal = getHistoryTotal(stats);
     const totalPages = historyTotal === null
       ? null
@@ -344,7 +353,11 @@ function HistoryPage({ onStartPrediction }) {
   const openPredictionDetail = async (item) => {
     const recordId = item?.id || item?.record_id;
 
-    if (!recordId || deletingId === recordId) {
+    if (
+      !recordId
+      || deletingId === recordId
+      || serverActionsUnavailable
+    ) {
       return;
     }
 
@@ -407,6 +420,8 @@ function HistoryPage({ onStartPrediction }) {
   const saveLocationLabel = async (event) => {
     event.preventDefault();
 
+    if (serverActionsUnavailable) return;
+
     const recordId = predictionDetail?.id || predictionDetail?.record_id;
     if (!recordId || isSavingLocationLabel) {
       return;
@@ -445,7 +460,7 @@ function HistoryPage({ onStartPrediction }) {
   };
 
   const handleDelete = async (recordId) => {
-    if (pageRequestInFlightRef.current) return;
+    if (pageRequestInFlightRef.current || serverActionsUnavailable) return;
 
     pageRequestInFlightRef.current = true;
     setDeletingId(recordId);
@@ -480,6 +495,8 @@ function HistoryPage({ onStartPrediction }) {
 
   const handleExport = async (event) => {
     event?.preventDefault();
+
+    if (serverActionsUnavailable) return;
 
     const hasStartDate = Boolean(reportStartDate);
     const hasEndDate = Boolean(reportEndDate);
@@ -653,6 +670,12 @@ function HistoryPage({ onStartPrediction }) {
         )}
       />
 
+      {serverActionsUnavailable && (
+        <Alert tone="warning" role="note">
+          Riwayat dan laporan memerlukan koneksi server.
+        </Alert>
+      )}
+
       <section
         className="history-statistics"
         aria-label="Statistik foto dan TBS"
@@ -706,7 +729,11 @@ function HistoryPage({ onStartPrediction }) {
           type="button"
           variant="secondary"
           onClick={loadHistory}
-          disabled={isLoading || isPaginationBusy}
+          disabled={
+            isLoading
+            || isPaginationBusy
+            || serverActionsUnavailable
+          }
         >
           <Icon name="refresh" />
           Muat ulang
@@ -758,7 +785,12 @@ function HistoryPage({ onStartPrediction }) {
           <Button
             type="submit"
             variant="secondary"
-            disabled={isLoading || isExporting || historyItems.length === 0}
+            disabled={
+              isLoading
+              || isExporting
+              || historyItems.length === 0
+              || serverActionsUnavailable
+            }
             aria-busy={isExporting}
           >
             <Icon name="download" />
@@ -786,10 +818,30 @@ function HistoryPage({ onStartPrediction }) {
         <LoadingState title="Memuat riwayat..." description="Data pemeriksaan sedang diambil." />
       ) : filteredItems.length === 0 ? (
         <EmptyState
-          title={historyItems.length ? "Tidak ada hasil yang cocok" : "Belum ada riwayat"}
-          description={historyItems.length ? "Ubah kata pencarian atau filter kematangan." : "Mulai pemeriksaan TBS agar hasilnya tersimpan di halaman ini."}
-          actionLabel={historyItems.length ? undefined : "Mulai prediksi"}
-          onAction={historyItems.length ? undefined : onStartPrediction}
+          title={
+            serverActionsUnavailable && historyItems.length === 0
+              ? "Riwayat belum dapat dimuat"
+              : historyItems.length
+                ? "Tidak ada hasil yang cocok"
+                : "Belum ada riwayat"
+          }
+          description={
+            serverActionsUnavailable && historyItems.length === 0
+              ? "Hubungkan perangkat ke server untuk memuat riwayat."
+              : historyItems.length
+                ? "Ubah kata pencarian atau filter kematangan."
+                : "Mulai pemeriksaan TBS agar hasilnya tersimpan di halaman ini."
+          }
+          actionLabel={
+            historyItems.length || serverActionsUnavailable
+              ? undefined
+              : "Mulai prediksi"
+          }
+          onAction={
+            historyItems.length || serverActionsUnavailable
+              ? undefined
+              : onStartPrediction
+          }
         />
       ) : (
         <section className="history-grid">
@@ -812,6 +864,7 @@ function HistoryPage({ onStartPrediction }) {
                   aria-haspopup="dialog"
                   aria-label={`Lihat detail prediksi ${meta.label}`}
                   onClick={() => openPredictionDetail(item)}
+                  disabled={serverActionsUnavailable}
                 >
                   <div className="history-card-image">
                     {imageUrl ? (
@@ -855,7 +908,10 @@ function HistoryPage({ onStartPrediction }) {
                     type="button"
                     className="history-delete-button"
                     onClick={() => setDeleteCandidate(item)}
-                    disabled={deletingId === item.id}
+                    disabled={
+                      deletingId === item.id
+                      || serverActionsUnavailable
+                    }
                     aria-label={`Hapus riwayat ${formatDate(item.created_at)}`}
                   >
                     <Icon name="trash" size={18} />
@@ -889,7 +945,11 @@ function HistoryPage({ onStartPrediction }) {
                 variant="secondary"
                 className="history-pagination-direction history-pagination-previous"
                 onClick={() => changeHistoryPage(currentPage - 1)}
-                disabled={!canGoToPreviousPage || isPaginationBusy}
+                disabled={
+                  !canGoToPreviousPage
+                  || isPaginationBusy
+                  || serverActionsUnavailable
+                }
                 aria-label="Buka halaman riwayat sebelumnya"
               >
                 <Icon name="chevron" size={18} />
@@ -906,7 +966,7 @@ function HistoryPage({ onStartPrediction }) {
                         variant={item === currentPage ? "secondary" : "ghost"}
                         className="history-pagination-page"
                         onClick={() => changeHistoryPage(item)}
-                        disabled={isPaginationBusy}
+                        disabled={isPaginationBusy || serverActionsUnavailable}
                         aria-label={`Buka halaman ${item}`}
                         aria-current={item === currentPage ? "page" : undefined}
                       >
@@ -936,7 +996,11 @@ function HistoryPage({ onStartPrediction }) {
                 variant="secondary"
                 className="history-pagination-direction"
                 onClick={() => changeHistoryPage(currentPage + 1)}
-                disabled={!canGoToNextPage || isPaginationBusy}
+                disabled={
+                  !canGoToNextPage
+                  || isPaginationBusy
+                  || serverActionsUnavailable
+                }
                 aria-label="Buka halaman riwayat berikutnya"
               >
                 <span>Berikutnya</span>
@@ -1125,7 +1189,13 @@ function HistoryPage({ onStartPrediction }) {
                     location={detailLocation}
                     className="history-detail-location"
                     actions={!isEditingLocationLabel && (
-                      <Button type="button" variant="secondary" size="sm" onClick={startEditingLocationLabel}>
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        size="sm"
+                        onClick={startEditingLocationLabel}
+                        disabled={serverActionsUnavailable}
+                      >
                         <Icon name="edit" size={17} />
                         Edit lokasi
                       </Button>
@@ -1164,7 +1234,10 @@ function HistoryPage({ onStartPrediction }) {
                         <div>
                           <Button
                             type="submit"
-                            disabled={isSavingLocationLabel}
+                            disabled={
+                              isSavingLocationLabel
+                              || serverActionsUnavailable
+                            }
                           >
                             {isSavingLocationLabel
                               ? "Menyimpan..."
@@ -1331,7 +1404,7 @@ function HistoryPage({ onStartPrediction }) {
             type="button"
             variant="danger"
             onClick={() => handleDelete(deleteCandidate?.id)}
-            disabled={Boolean(deletingId)}
+            disabled={Boolean(deletingId) || serverActionsUnavailable}
           >
             {deletingId ? "Menghapus..." : "Hapus riwayat"}
           </Button>

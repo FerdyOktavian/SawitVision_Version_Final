@@ -299,3 +299,29 @@
   .bottom-navigation-item,
   .app-header-user { transition-duration: 0.01ms !important; }
 }
+.app-connectivity-banner {
+  width: min(calc(100% - 2rem), var(--container-lg));
+  margin: var(--space-3) auto 0;
+}
+
+.app-connectivity-banner .ui-alert > div {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.app-connectivity-banner .ui-alert strong {
+  color: inherit;
+  font-size: var(--font-size-small);
+}
+
+.app-connectivity-banner .ui-alert span {
+  font-size: var(--font-size-caption);
+}
+
+@media (max-width: 479px) {
+  .app-connectivity-banner {
+    width: min(calc(100% - 1.5rem), var(--container-lg));
+    margin-top: var(--space-2);
+  }
+}

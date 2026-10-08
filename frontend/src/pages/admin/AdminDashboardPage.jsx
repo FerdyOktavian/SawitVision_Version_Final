@@ -31,7 +31,11 @@ function toSafeCount(value, fallback = 0) {
   return Number.isFinite(number) && number >= 0 ? Math.trunc(number) : fallback;
 }
 
-function AdminDashboardPage({ currentUser }) {
+function AdminDashboardPage({
+  currentUser,
+  serverActionsUnavailable = false,
+}) {
+  const serverActionsUnavailableRef = useRef(serverActionsUnavailable);
   const [activeTab, setActiveTab] = useState("overview");
   const [stats, setStats] = useState(null);
   const [storageStats, setStorageStats] = useState(null);
@@ -45,7 +49,9 @@ function AdminDashboardPage({ currentUser }) {
   const usersLoadingRef = useRef(false);
   const activityPageRef = useRef(1);
   const activityLoadingRef = useRef(false);
-  const [isLoadingStats, setIsLoadingStats] = useState(true);
+  const [isLoadingStats, setIsLoadingStats] = useState(
+    () => !serverActionsUnavailable,
+  );
   const [isLoadingUsers, setIsLoadingUsers] = useState(false);
   const [usersPagination, setUsersPagination] = useState({
     page: 1,
@@ -81,7 +87,13 @@ function AdminDashboardPage({ currentUser }) {
 
   const isAdmin = currentUser?.role === "admin";
 
+  useEffect(() => {
+    serverActionsUnavailableRef.current = serverActionsUnavailable;
+  }, [serverActionsUnavailable]);
+
   const loadStats = useCallback(async () => {
+    if (serverActionsUnavailableRef.current) return;
+
     setIsLoadingStats(true);
     setErrorMessage("");
     try {
@@ -94,7 +106,7 @@ function AdminDashboardPage({ currentUser }) {
   }, []);
 
   const loadUsers = useCallback(async (requestedPage = usersPageRef.current) => {
-    if (usersLoadingRef.current) return;
+    if (usersLoadingRef.current || serverActionsUnavailableRef.current) return;
 
     usersLoadingRef.current = true;
     setIsLoadingUsers(true);
@@ -149,7 +161,7 @@ function AdminDashboardPage({ currentUser }) {
   }, []);
 
   const loadActivity = useCallback(async (requestedPage = activityPageRef.current) => {
-    if (activityLoadingRef.current) return;
+    if (activityLoadingRef.current || serverActionsUnavailableRef.current) return;
 
     activityLoadingRef.current = true;
     setIsLoadingActivity(true);
@@ -198,6 +210,8 @@ function AdminDashboardPage({ currentUser }) {
   }, []);
 
   const loadStorage = useCallback(async () => {
+    if (serverActionsUnavailableRef.current) return;
+
     setIsLoadingStorage(true);
     setErrorMessage("");
     try {
@@ -210,6 +224,8 @@ function AdminDashboardPage({ currentUser }) {
   }, []);
 
   const loadReportUsers = useCallback(async () => {
+    if (serverActionsUnavailableRef.current) return;
+
     setIsLoadingReportUsers(true);
     setErrorMessage("");
     try {
@@ -324,6 +340,8 @@ function AdminDashboardPage({ currentUser }) {
   }, [storageStats]);
 
   const updateUserStatus = async (user) => {
+    if (serverActionsUnavailableRef.current) return;
+
     const nextStatus = !user.is_active;
     setActionUserId(user.id);
     setErrorMessage("");
@@ -344,6 +362,8 @@ function AdminDashboardPage({ currentUser }) {
   };
 
   const cleanStorage = async () => {
+    if (serverActionsUnavailableRef.current) return;
+
     setIsCleaningStorage(true);
     setErrorMessage("");
     setSuccessMessage("");
@@ -360,6 +380,8 @@ function AdminDashboardPage({ currentUser }) {
   };
 
   const cleanActivity = async () => {
+    if (serverActionsUnavailableRef.current) return;
+
     setIsCleaningLogs(true);
     setErrorMessage("");
     setSuccessMessage("");
@@ -376,6 +398,11 @@ function AdminDashboardPage({ currentUser }) {
   };
 
   const handleConfirmation = () => {
+    if (serverActionsUnavailableRef.current) {
+      setConfirmation(null);
+      return;
+    }
+
     if (confirmation?.type === "user-status") updateUserStatus(confirmation.user);
     if (confirmation?.type === "storage") cleanStorage();
     if (confirmation?.type === "activity") cleanActivity();
@@ -416,6 +443,8 @@ function AdminDashboardPage({ currentUser }) {
   }, [confirmation]);
 
   const handleDownloadReport = async () => {
+    if (serverActionsUnavailableRef.current) return;
+
     setIsDownloadingReport(true);
     setErrorMessage("");
     setSuccessMessage("");
@@ -570,21 +599,35 @@ function AdminDashboardPage({ currentUser }) {
         )}
       />
 
-      <div className="admin-workspace">
-        <AdminSectionNav
-          activeSection={activeTab}
-          onChange={(section) => {
-            setActiveTab(section);
-            setErrorMessage("");
-            setSuccessMessage("");
-          }}
+      {serverActionsUnavailable && (
+        <Alert tone="warning" role="note">
+          Data dan tindakan admin memerlukan koneksi server.
+        </Alert>
+      )}
+
+      {serverActionsUnavailable && !stats && !storageStats ? (
+        <EmptyState
+          icon="admin"
+          title="Data admin belum dapat dimuat"
+          description="Hubungkan perangkat ke server untuk membuka dashboard admin."
         />
-        <div className="admin-content">
-          {errorMessage && <Alert tone="error" role="alert">{errorMessage}</Alert>}
-          {successMessage && <Alert tone="success" role="status">{successMessage}</Alert>}
-          {renderSection()}
+      ) : (
+        <div className="admin-workspace">
+          <AdminSectionNav
+            activeSection={activeTab}
+            onChange={(section) => {
+              setActiveTab(section);
+              setErrorMessage("");
+              setSuccessMessage("");
+            }}
+          />
+          <div className="admin-content">
+            {errorMessage && <Alert tone="error" role="alert">{errorMessage}</Alert>}
+            {successMessage && <Alert tone="success" role="status">{successMessage}</Alert>}
+            {renderSection()}
+          </div>
         </div>
-      </div>
+      )}
 
       <Modal
         open={Boolean(confirmation)}

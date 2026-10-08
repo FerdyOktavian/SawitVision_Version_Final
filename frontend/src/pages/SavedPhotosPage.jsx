@@ -227,7 +227,13 @@ function SavedPhotoThumbnail({ imageBlob, alt }) {
   );
 }
 
-function SavedPhotosPage({ currentUser, onBack, onOpenHistory }) {
+function SavedPhotosPage({
+  currentUser,
+  onBack,
+  onOpenHistory,
+  definitelyOffline = false,
+  serverActionsUnavailable = false,
+}) {
   const selectAllRef = useRef(null);
   const predictionRunRef = useRef(false);
   const ownerUserId = String(currentUser?.id || "").trim();
@@ -640,6 +646,7 @@ function SavedPhotosPage({ currentUser, onBack, onOpenHistory }) {
     if (
       predictionRunRef.current
       || isDeleting
+      || serverActionsUnavailable
       || !ownerUserId
       || requestedPhotos.length === 0
     ) {
@@ -895,6 +902,14 @@ function SavedPhotosPage({ currentUser, onBack, onOpenHistory }) {
             </div>
           </Card>
 
+          {serverActionsUnavailable && (
+            <Alert tone="warning" role="note">
+              {definitelyOffline
+                ? "Prediksi tersedia saat koneksi internet aktif."
+                : "Prediksi tersedia setelah koneksi server kembali."}
+            </Alert>
+          )}
+
           {operationError && (
             <Alert tone="error" role="alert">{operationError}</Alert>
           )}
@@ -982,7 +997,11 @@ function SavedPhotosPage({ currentUser, onBack, onOpenHistory }) {
                       type="button"
                       size="sm"
                       onClick={() => runPredictionQueue(selectedPhotos)}
-                      disabled={isDeleting || isPredicting}
+                      disabled={
+                        isDeleting
+                        || isPredicting
+                        || serverActionsUnavailable
+                      }
                     >
                       <Icon name="scan" size={17} />
                       Prediksi {selectedPhotos.length} Foto
@@ -1073,6 +1092,7 @@ function SavedPhotosPage({ currentUser, onBack, onOpenHistory }) {
                               !isPhotoPredictable
                               || isDeleting
                               || isPredicting
+                              || serverActionsUnavailable
                             }
                           >
                             <Icon name="scan" size={17} />

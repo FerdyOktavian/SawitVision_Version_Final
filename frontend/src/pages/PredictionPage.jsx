@@ -203,7 +203,13 @@ function createSavedPhotoRecord({ file, ownerUserId, captureMetadata, location }
   };
 }
 
-function PredictionPage({ currentUser, onOpenHistory, onOpenSavedPhotos }) {
+function PredictionPage({
+  currentUser,
+  onOpenHistory,
+  onOpenSavedPhotos,
+  definitelyOffline = false,
+  serverActionsUnavailable = false,
+}) {
   const galleryRef = useRef(null);
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
@@ -252,9 +258,6 @@ function PredictionPage({ currentUser, onOpenHistory, onOpenSavedPhotos }) {
   });
   const [isSavingPhoto, setIsSavingPhoto] = useState(false);
   const [localSaveFeedback, setLocalSaveFeedback] = useState(null);
-  const [isDefinitelyOffline, setIsDefinitelyOffline] = useState(
-    () => globalThis.navigator?.onLine === false,
-  );
   const ownerUserId = String(currentUser?.id || "").trim();
   const hasCurrentOwnerSummary =
     savedPhotoSummary.ownerUserId === ownerUserId;
@@ -509,19 +512,6 @@ function PredictionPage({ currentUser, onOpenHistory, onOpenSavedPhotos }) {
       }
 
       invalidateSavedPhotoLocationPrefetch();
-    };
-  }, []);
-
-  useEffect(() => {
-    const markOnline = () => setIsDefinitelyOffline(false);
-    const markOffline = () => setIsDefinitelyOffline(true);
-
-    globalThis.addEventListener?.("online", markOnline);
-    globalThis.addEventListener?.("offline", markOffline);
-
-    return () => {
-      globalThis.removeEventListener?.("online", markOnline);
-      globalThis.removeEventListener?.("offline", markOffline);
     };
   }, []);
 
@@ -926,8 +916,12 @@ function PredictionPage({ currentUser, onOpenHistory, onOpenSavedPhotos }) {
       return;
     }
 
-    if (isDefinitelyOffline) {
-      setError("Prediksi memerlukan koneksi internet.");
+    if (serverActionsUnavailable) {
+      setError(
+        definitelyOffline
+          ? "Prediksi memerlukan koneksi internet."
+          : "Koneksi server belum tersedia.",
+      );
       return;
     }
 
@@ -1168,31 +1162,48 @@ function PredictionPage({ currentUser, onOpenHistory, onOpenSavedPhotos }) {
       />
 
       <Card
-        className="prediction-v2-saved-count"
-        variant="subtle"
+        className={`prediction-v2-saved-count${
+          savedPhotoCountUnavailable ? " is-unavailable" : ""
+        }`}
       >
-        <Icon name="gallery" size={22} />
-        <div
-          className="prediction-v2-saved-count-copy"
-          role="status"
-          aria-live="polite"
-        >
-          <b>Foto Tersimpan</b>
-          <p>
+        <div className="prediction-v2-saved-count-icon" aria-hidden="true">
+          <Icon name="folder" size={25} />
+        </div>
+        <div className="prediction-v2-saved-count-copy">
+          <div className="prediction-v2-saved-count-heading">
+            <b>Foto Tersimpan</b>
+            <Badge
+              tone={savedPhotoCountUnavailable ? "warning" : "success"}
+              aria-hidden="true"
+            >
+              {isSavedPhotoCountLoading
+                ? "..."
+                : savedPhotoCountUnavailable
+                  ? "Tidak tersedia"
+                  : savedPhotoCount ?? 0}
+            </Badge>
+          </div>
+          <p>Tempat menyimpan foto untuk diprediksi nanti.</p>
+          <span
+            className="prediction-v2-saved-count-status"
+            role="status"
+            aria-live="polite"
+          >
             {isSavedPhotoCountLoading
               ? "Menghitung foto tersimpan..."
               : savedPhotoCountUnavailable
-                ? "Penyimpanan lokal tidak tersedia"
+                ? "Penyimpanan lokal tidak tersedia di perangkat ini."
                 : `${savedPhotoCount ?? 0} foto tersimpan di perangkat`}
-          </p>
+          </span>
         </div>
         <Button
           type="button"
-          variant="ghost"
+          variant="secondary"
           size="sm"
           onClick={onOpenSavedPhotos}
+          disabled={savedPhotoCountUnavailable}
         >
-          Lihat Foto
+          Buka Foto Tersimpan
         </Button>
       </Card>
 
@@ -1373,7 +1384,7 @@ function PredictionPage({ currentUser, onOpenHistory, onOpenSavedPhotos }) {
                   type="button"
                   variant="primary"
                   onClick={runPrediction}
-                  disabled={isBusy || isDefinitelyOffline}
+                  disabled={isBusy || serverActionsUnavailable}
                 >
                   {loading
                     ? "Menganalisis..."
@@ -1381,12 +1392,14 @@ function PredictionPage({ currentUser, onOpenHistory, onOpenSavedPhotos }) {
                       ? "Menyiapkan lokasi..."
                       : "Mulai Prediksi"}
                 </Button>
-                {isDefinitelyOffline && (
+                {serverActionsUnavailable && (
                   <small
                     className="prediction-v2-action-note is-warning"
                     role="status"
                   >
-                    Prediksi memerlukan koneksi internet.
+                    {definitelyOffline
+                      ? "Prediksi memerlukan koneksi internet."
+                      : "Koneksi server belum tersedia."}
                   </small>
                 )}
               </div>

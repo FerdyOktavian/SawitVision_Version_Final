@@ -15,12 +15,16 @@ import ProfilePage from "./pages/ProfilePage";
 import AboutPage from "./pages/AboutPage";
 import AdminDashboardPage from "./pages/admin/AdminDashboardPage";
 import Icon from "./components/ui/Icon";
+import Alert from "./components/ui/Alert";
 import LoadingState from "./components/ui/LoadingState";
+import useConnectivityStatus from "./hooks/useConnectivityStatus";
 
 import {
   clearAuthSession,
+  getAccessToken,
   getCurrentUser,
   getStoredUser,
+  saveStoredUser,
 } from "./services/api";
 
 import "./styles/tokens.css";
@@ -49,6 +53,42 @@ const VALID_PAGES = [
   "admin",
 ];
 
+const AUTH_VALIDATION_STATUS = {
+  VALIDATED: "validated",
+  OFFLINE_UNVERIFIED: "offline-unverified",
+  UNAUTHENTICATED: "unauthenticated",
+};
+
+function hasStableUserIdentity(user) {
+  return Boolean(String(user?.id || "").trim());
+}
+
+function isDefinitiveAuthFailure(error) {
+  return error?.kind === "http"
+    && (error.status === 401 || error.status === 403);
+}
+
+function ConnectivityBanner({ definitelyOffline, serverActionsUnavailable }) {
+  if (!serverActionsUnavailable) return null;
+
+  return (
+    <div className="app-connectivity-banner">
+      <Alert tone={definitelyOffline ? "warning" : "neutral"} role="status">
+        <strong>
+          {definitelyOffline
+            ? "Mode offline"
+            : "Koneksi server belum tersedia"}
+        </strong>
+        <span>
+          {definitelyOffline
+            ? "Foto tetap dapat disimpan. Prediksi memerlukan koneksi internet."
+            : "Fitur lokal tetap dapat digunakan."}
+        </span>
+      </Alert>
+    </div>
+  );
+}
+
 function getInitialActivePage() {
   const savedPage = localStorage.getItem(ACTIVE_PAGE_KEY);
 
@@ -60,6 +100,7 @@ function getInitialActivePage() {
 }
 
 function App() {
+  const { definitelyOffline } = useConnectivityStatus();
   // =====================================================
   // AUTH PAGE
   // login | register | forgot-account
@@ -74,7 +115,13 @@ function App() {
 
   const [currentUser, setCurrentUser] = useState(() => getStoredUser());
 
+  const [authValidationStatus, setAuthValidationStatus] = useState(
+    AUTH_VALIDATION_STATUS.UNAUTHENTICATED,
+  );
+
   const [isCheckingSession, setIsCheckingSession] = useState(true);
+  const serverActionsUnavailable = definitelyOffline
+    || authValidationStatus === AUTH_VALIDATION_STATUS.OFFLINE_UNVERIFIED;
 
   // =====================================================
   // CEK SESSION SAAT APP PERTAMA DIBUKA / REFRESH
@@ -82,9 +129,12 @@ function App() {
   useEffect(() => {
     const checkSession = async () => {
       const storedUser = getStoredUser();
+      const storedToken = getAccessToken();
 
-      if (!storedUser) {
+      if (!hasStableUserIdentity(storedUser) || !storedToken) {
+        clearAuthSession();
         setCurrentUser(null);
+        setAuthValidationStatus(AUTH_VALIDATION_STATUS.UNAUTHENTICATED);
         setIsCheckingSession(false);
 
         localStorage.removeItem(ACTIVE_PAGE_KEY);
@@ -100,7 +150,17 @@ function App() {
         // atau langsung {...}
         const freshUser = response?.user || response;
 
+        if (!hasStableUserIdentity(freshUser)) {
+          setCurrentUser(storedUser);
+          setAuthValidationStatus(
+            AUTH_VALIDATION_STATUS.OFFLINE_UNVERIFIED,
+          );
+          return;
+        }
+
+        saveStoredUser(freshUser);
         setCurrentUser(freshUser);
+        setAuthValidationStatus(AUTH_VALIDATION_STATUS.VALIDATED);
 
         // Kalau page terakhir admin,
         // tapi user sekarang bukan admin,
@@ -112,13 +172,21 @@ function App() {
 
           localStorage.setItem(ACTIVE_PAGE_KEY, "home");
         }
-      } catch {
-        clearAuthSession();
+      } catch (error) {
+        if (isDefinitiveAuthFailure(error)) {
+          clearAuthSession();
 
-        localStorage.removeItem(ACTIVE_PAGE_KEY);
+          localStorage.removeItem(ACTIVE_PAGE_KEY);
 
-        setCurrentUser(null);
-        setActivePage("home");
+          setCurrentUser(null);
+          setAuthValidationStatus(AUTH_VALIDATION_STATUS.UNAUTHENTICATED);
+          setActivePage("home");
+        } else {
+          setCurrentUser(storedUser);
+          setAuthValidationStatus(
+            AUTH_VALIDATION_STATUS.OFFLINE_UNVERIFIED,
+          );
+        }
       } finally {
         setIsCheckingSession(false);
       }
@@ -160,6 +228,7 @@ function App() {
   // =====================================================
   const handleLoginSuccess = (user) => {
     setCurrentUser(user);
+    setAuthValidationStatus(AUTH_VALIDATION_STATUS.VALIDATED);
 
     setRecoveredAccount(null);
 
@@ -209,6 +278,7 @@ function App() {
     localStorage.removeItem(ACTIVE_PAGE_KEY);
 
     setCurrentUser(null);
+    setAuthValidationStatus(AUTH_VALIDATION_STATUS.UNAUTHENTICATED);
     setActivePage("home");
     setAuthPage("login");
     setRecoveredAccount(null);
@@ -235,6 +305,8 @@ function App() {
           currentUser={currentUser}
           onOpenHistory={() => handleNavigate("history")}
           onOpenSavedPhotos={() => handleNavigate("saved-photos")}
+          definitelyOffline={definitelyOffline}
+          serverActionsUnavailable={serverActionsUnavailable}
         />
       );
     }
@@ -245,6 +317,8 @@ function App() {
           currentUser={currentUser}
           onBack={() => handleNavigate("prediction")}
           onOpenHistory={() => handleNavigate("history")}
+          definitelyOffline={definitelyOffline}
+          serverActionsUnavailable={serverActionsUnavailable}
         />
       );
     }
@@ -254,6 +328,7 @@ function App() {
         <HistoryPage
           currentUser={currentUser}
           onStartPrediction={() => handleNavigate("prediction")}
+          serverActionsUnavailable={serverActionsUnavailable}
         />
       );
     }
@@ -262,8 +337,10 @@ function App() {
       return (
         <ProfilePage
           currentUser={currentUser}
+          serverActionsUnavailable={serverActionsUnavailable}
           onUserUpdated={(updatedUser) => {
             setCurrentUser(updatedUser);
+            setAuthValidationStatus(AUTH_VALIDATION_STATUS.VALIDATED);
           }}
           onLogout={handleLogout}
         />
@@ -281,7 +358,12 @@ function App() {
     }
 
     if (activePage === "admin" && currentUser?.role === "admin") {
-      return <AdminDashboardPage currentUser={currentUser} />;
+      return (
+        <AdminDashboardPage
+          currentUser={currentUser}
+          serverActionsUnavailable={serverActionsUnavailable}
+        />
+      );
     }
 
     return (
@@ -323,13 +405,19 @@ function App() {
     // ===================================================
     if (authPage === "register") {
       return (
-        <RegisterPage
-          onGoToLogin={() => {
-            setRecoveredAccount(null);
-            setAuthPage("login");
-          }}
-          onRegisterSuccess={handleRegisterSuccess}
-        />
+        <>
+          <ConnectivityBanner
+            definitelyOffline={definitelyOffline}
+            serverActionsUnavailable={serverActionsUnavailable}
+          />
+          <RegisterPage
+            onGoToLogin={() => {
+              setRecoveredAccount(null);
+              setAuthPage("login");
+            }}
+            onRegisterSuccess={handleRegisterSuccess}
+          />
+        </>
       );
     }
 
@@ -338,10 +426,16 @@ function App() {
     // ===================================================
     if (authPage === "forgot-account") {
       return (
-        <ForgotAccountPage
-          onGoToLogin={handleBackToLogin}
-          onAccountRecovered={handleAccountRecovered}
-        />
+        <>
+          <ConnectivityBanner
+            definitelyOffline={definitelyOffline}
+            serverActionsUnavailable={serverActionsUnavailable}
+          />
+          <ForgotAccountPage
+            onGoToLogin={handleBackToLogin}
+            onAccountRecovered={handleAccountRecovered}
+          />
+        </>
       );
     }
 
@@ -349,15 +443,21 @@ function App() {
     // LOGIN
     // ===================================================
     return (
-      <LoginPage
-        onLoginSuccess={handleLoginSuccess}
-        onGoToRegister={() => {
-          setRecoveredAccount(null);
-          setAuthPage("register");
-        }}
-        onGoToForgotAccount={handleGoToForgotAccount}
-        recoveredAccount={recoveredAccount}
-      />
+      <>
+        <ConnectivityBanner
+          definitelyOffline={definitelyOffline}
+          serverActionsUnavailable={serverActionsUnavailable}
+        />
+        <LoginPage
+          onLoginSuccess={handleLoginSuccess}
+          onGoToRegister={() => {
+            setRecoveredAccount(null);
+            setAuthPage("register");
+          }}
+          onGoToForgotAccount={handleGoToForgotAccount}
+          recoveredAccount={recoveredAccount}
+        />
+      </>
     );
   }
 
@@ -365,8 +465,16 @@ function App() {
   // SUDAH LOGIN
   // =====================================================
   return (
-    <div className="app-shell">
+    <div
+      className="app-shell"
+      data-auth-validation-status={authValidationStatus}
+    >
       <AppHeader currentUser={currentUser} onNavigate={handleNavigate} />
+
+      <ConnectivityBanner
+        definitelyOffline={definitelyOffline}
+        serverActionsUnavailable={serverActionsUnavailable}
+      />
 
       {renderActivePage()}
 
