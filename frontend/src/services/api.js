@@ -285,11 +285,24 @@ export async function predictPalmImage(
 // RIWAYAT PREDIKSI
 // =========================================================
 
-export async function getPredictions({ limit = 20, offset = 0 } = {}) {
+export async function getPredictions({
+  limit = 20,
+  offset = 0,
+  startDate,
+  endDate,
+} = {}) {
   const searchParams = new URLSearchParams({
     limit: String(limit),
     offset: String(offset),
   });
+
+  if (startDate) {
+    searchParams.set("start_date", startDate);
+  }
+
+  if (endDate) {
+    searchParams.set("end_date", endDate);
+  }
 
   return apiRequest(`/predictions?${searchParams.toString()}`, {
     method: "GET",

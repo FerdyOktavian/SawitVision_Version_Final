@@ -19,8 +19,10 @@ import logging
 import math
 import time
 import warnings
-from datetime import datetime
+from datetime import date as calendar_date
+from datetime import datetime, time as datetime_time, timedelta, timezone
 from uuid import UUID
+from zoneinfo import ZoneInfo
 
 from fastapi import (
     Depends,
@@ -1009,16 +1011,97 @@ async def predict(
 def list_predictions(
     limit: int = 20,
     offset: int = 0,
+    start_date: str | None = Query(
+        None,
+        description="Tanggal awal riwayat dalam format YYYY-MM-DD",
+    ),
+    end_date: str | None = Query(
+        None,
+        description="Tanggal akhir riwayat dalam format YYYY-MM-DD",
+    ),
     current_user: dict = Depends(get_current_user),
 ):
+    def parse_date(value: str | None, parameter_name: str):
+        if value is None:
+            return None
+
+        try:
+            parsed_value = calendar_date.fromisoformat(value)
+        except (TypeError, ValueError):
+            parsed_value = None
+
+        if parsed_value is None or parsed_value.isoformat() != value:
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "code": "invalid_history_date",
+                    "message": (
+                        f"{parameter_name} harus menggunakan format YYYY-MM-DD."
+                    ),
+                },
+            )
+
+        return parsed_value
+
+    parsed_start_date = parse_date(start_date, "start_date")
+    parsed_end_date = parse_date(end_date, "end_date")
+
+    if (
+        parsed_start_date is not None
+        and parsed_end_date is not None
+        and parsed_start_date > parsed_end_date
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "invalid_history_date_range",
+                "message": "Tanggal awal tidak boleh setelah tanggal akhir.",
+            },
+        )
+
+    history_timezone = ZoneInfo("Asia/Jakarta")
+    start_at = (
+        datetime.combine(
+            parsed_start_date,
+            datetime_time.min,
+            tzinfo=history_timezone,
+        ).astimezone(timezone.utc)
+        if parsed_start_date is not None
+        else None
+    )
+    end_at = (
+        datetime.combine(
+            parsed_end_date + timedelta(days=1),
+            datetime_time.min,
+            tzinfo=history_timezone,
+        ).astimezone(timezone.utc)
+        if parsed_end_date is not None
+        else None
+    )
+
     limit = min(max(limit, 1), 50)
     offset = max(offset, 0)
     db = SessionLocal()
     try:
         records = get_prediction_records(
-            db=db, user_id=current_user["id"], limit=limit, offset=offset
+            db=db,
+            user_id=current_user["id"],
+            limit=limit,
+            offset=offset,
+            start_at=start_at,
+            end_at=end_at,
         )
-        return {"total": len(records), "data": records}
+        filtered_total = count_prediction_records(
+            db=db,
+            user_id=current_user["id"],
+            start_at=start_at,
+            end_at=end_at,
+        )
+        return {
+            "total": len(records),
+            "filtered_total": filtered_total,
+            "data": records,
+        }
     finally:
         db.close()
 

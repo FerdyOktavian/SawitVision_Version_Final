@@ -347,9 +347,31 @@ def get_prediction_records(
     user_id: Optional[str] = None,
     limit: int = 20,
     offset: int = 0,
+    start_at: Optional[datetime] = None,
+    end_at: Optional[datetime] = None,
 ) -> list[dict[str, Any]]:
     """Mengambil daftar riwayat prediksi."""
-    where_sql = "WHERE user_id = :user_id" if user_id else ""
+    conditions = []
+
+    if user_id:
+        conditions.append("user_id = :user_id")
+    if start_at is not None:
+        conditions.append("created_at >= :start_at")
+    if end_at is not None:
+        conditions.append("created_at < :end_at")
+
+    where_sql = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+    query_parameters = {
+        "limit": max(1, min(int(limit), 100)),
+        "offset": max(0, int(offset)),
+    }
+
+    if user_id:
+        query_parameters["user_id"] = user_id
+    if start_at is not None:
+        query_parameters["start_at"] = start_at
+    if end_at is not None:
+        query_parameters["end_at"] = end_at
 
     rows = db.execute(
         text(
@@ -374,11 +396,7 @@ def get_prediction_records(
             LIMIT :limit OFFSET :offset
             """
         ),
-        {
-            "user_id": user_id,
-            "limit": max(1, min(int(limit), 100)),
-            "offset": max(0, int(offset)),
-        },
+        query_parameters,
     ).fetchall()
 
     return [_prediction_row_to_dict(row) for row in rows]
@@ -387,23 +405,39 @@ def get_prediction_records(
 def count_prediction_records(
     db: Session,
     user_id: Optional[str] = None,
+    start_at: Optional[datetime] = None,
+    end_at: Optional[datetime] = None,
 ) -> int:
     """Menghitung jumlah prediksi, global atau per pengguna."""
+    conditions = []
+
     if user_id:
-        total = db.execute(
-            text(
-                """
-                SELECT COUNT(*)
-                FROM public.prediction_records
-                WHERE user_id = :user_id
-                """
-            ),
-            {"user_id": user_id},
-        ).scalar()
-    else:
-        total = db.execute(
-            text("SELECT COUNT(*) FROM public.prediction_records")
-        ).scalar()
+        conditions.append("user_id = :user_id")
+    if start_at is not None:
+        conditions.append("created_at >= :start_at")
+    if end_at is not None:
+        conditions.append("created_at < :end_at")
+
+    where_sql = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+    query_parameters = {}
+
+    if user_id:
+        query_parameters["user_id"] = user_id
+    if start_at is not None:
+        query_parameters["start_at"] = start_at
+    if end_at is not None:
+        query_parameters["end_at"] = end_at
+
+    total = db.execute(
+        text(
+            f"""
+            SELECT COUNT(*)
+            FROM public.prediction_records
+            {where_sql}
+            """
+        ),
+        query_parameters,
+    ).scalar()
 
     return int(total or 0)
 

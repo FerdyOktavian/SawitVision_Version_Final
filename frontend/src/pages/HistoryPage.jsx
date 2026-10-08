@@ -97,6 +97,48 @@ function getHistoryTotal(statsResponse) {
   return null;
 }
 
+function getFilteredHistoryTotal(response) {
+  const value = Number(response?.filtered_total);
+  return Number.isFinite(value) && value >= 0 ? Math.trunc(value) : null;
+}
+
+function formatCalendarDate(value) {
+  const [year, month, day] = String(value || "")
+    .split("-")
+    .map(Number);
+
+  if (!year || !month || !day) return "";
+
+  return new Intl.DateTimeFormat("id-ID", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  }).format(new Date(year, month - 1, day));
+}
+
+function formatDateFilterSummary({ startDate, endDate }) {
+  if (startDate && endDate && startDate === endDate) {
+    return `Menampilkan riwayat ${formatCalendarDate(startDate)}.`;
+  }
+
+  if (startDate && endDate) {
+    return (
+      `Menampilkan riwayat ${formatCalendarDate(startDate)}–` +
+      `${formatCalendarDate(endDate)}.`
+    );
+  }
+
+  if (startDate) {
+    return `Menampilkan riwayat sejak ${formatCalendarDate(startDate)}.`;
+  }
+
+  if (endDate) {
+    return `Menampilkan riwayat sampai ${formatCalendarDate(endDate)}.`;
+  }
+
+  return "";
+}
+
 function getPaginationItems(currentPage, totalPages) {
   if (!Number.isFinite(totalPages) || totalPages < 1) return [];
 
@@ -149,9 +191,17 @@ function HistoryPage({ onStartPrediction, serverActionsUnavailable = false }) {
   const initiallyServerUnavailableRef = useRef(serverActionsUnavailable);
   const [historyItems, setHistoryItems] = useState([]);
   const [stats, setStats] = useState(null);
+  const [historyResultTotal, setHistoryResultTotal] = useState(null);
 
   const [searchTerm, setSearchTerm] = useState("");
   const [classFilter, setClassFilter] = useState("all");
+  const [dateFilterStart, setDateFilterStart] = useState("");
+  const [dateFilterEnd, setDateFilterEnd] = useState("");
+  const [appliedDateFilter, setAppliedDateFilter] = useState({
+    startDate: "",
+    endDate: "",
+  });
+  const [dateFilterError, setDateFilterError] = useState("");
 
   const [isLoading, setIsLoading] = useState(
     () => !serverActionsUnavailable,
@@ -175,6 +225,16 @@ function HistoryPage({ onStartPrediction, serverActionsUnavailable = false }) {
   const [isSavingLocationLabel, setIsSavingLocationLabel] = useState(false);
   const [locationLabelError, setLocationLabelError] = useState("");
 
+  const buildHistoryRequest = (
+    page,
+    dateFilter = appliedDateFilter,
+  ) => ({
+    limit: HISTORY_PAGE_SIZE,
+    offset: (page - 1) * HISTORY_PAGE_SIZE,
+    startDate: dateFilter.startDate || undefined,
+    endDate: dateFilter.endDate || undefined,
+  });
+
   const loadHistory = async () => {
     if (pageRequestInFlightRef.current || serverActionsUnavailable) return;
 
@@ -183,21 +243,31 @@ function HistoryPage({ onStartPrediction, serverActionsUnavailable = false }) {
     setErrorMessage("");
 
     try {
-      const statsResponse = await getPredictionStats();
-      const updatedTotal = getHistoryTotal(statsResponse);
+      const [historyResponse, statsResponse] = await Promise.all([
+        getPredictions(buildHistoryRequest(currentPage)),
+        getPredictionStats(),
+      ]);
+      const filteredTotal = getFilteredHistoryTotal(historyResponse);
+      const updatedTotal = filteredTotal ?? (
+        appliedDateFilter.startDate || appliedDateFilter.endDate
+          ? null
+          : getHistoryTotal(statsResponse)
+      );
       const updatedTotalPages = updatedTotal === null
         ? null
         : Math.max(1, Math.ceil(updatedTotal / HISTORY_PAGE_SIZE));
       const safePage = updatedTotalPages === null
         ? currentPage
         : Math.min(currentPage, updatedTotalPages);
-      const historyResponse = await getPredictions({
-        limit: HISTORY_PAGE_SIZE,
-        offset: (safePage - 1) * HISTORY_PAGE_SIZE,
-      });
+      const safeHistoryResponse = safePage === currentPage
+        ? historyResponse
+        : await getPredictions(buildHistoryRequest(safePage));
 
-      const items = getHistoryItems(historyResponse);
+      const items = getHistoryItems(safeHistoryResponse);
       setHistoryItems(items);
+      setHistoryResultTotal(
+        getFilteredHistoryTotal(safeHistoryResponse) ?? updatedTotal,
+      );
       setCurrentPage(safePage);
       setStats(statsResponse);
     } catch (error) {
@@ -227,6 +297,7 @@ function HistoryPage({ onStartPrediction, serverActionsUnavailable = false }) {
 
         const items = getHistoryItems(historyResponse);
         setHistoryItems(items);
+        setHistoryResultTotal(getFilteredHistoryTotal(historyResponse));
         setStats(statsResponse);
       })
       .catch((error) => {
@@ -248,10 +319,15 @@ function HistoryPage({ onStartPrediction, serverActionsUnavailable = false }) {
   const changeHistoryPage = async (nextPage) => {
     if (serverActionsUnavailable) return;
 
-    const historyTotal = getHistoryTotal(stats);
-    const totalPages = historyTotal === null
+    const hasAppliedDateFilter = Boolean(
+      appliedDateFilter.startDate || appliedDateFilter.endDate,
+    );
+    const currentHistoryTotal = historyResultTotal ?? (
+      hasAppliedDateFilter ? null : getHistoryTotal(stats)
+    );
+    const totalPages = currentHistoryTotal === null
       ? null
-      : Math.max(1, Math.ceil(historyTotal / HISTORY_PAGE_SIZE));
+      : Math.max(1, Math.ceil(currentHistoryTotal / HISTORY_PAGE_SIZE));
     const safePage = totalPages === null
       ? Math.max(1, nextPage)
       : Math.min(Math.max(1, nextPage), totalPages);
@@ -268,28 +344,35 @@ function HistoryPage({ onStartPrediction, serverActionsUnavailable = false }) {
     setErrorMessage("");
 
     try {
-      const historyResponse = await getPredictions({
-        limit: HISTORY_PAGE_SIZE,
-        offset: (safePage - 1) * HISTORY_PAGE_SIZE,
-      });
+      const historyResponse = await getPredictions(
+        buildHistoryRequest(safePage),
+      );
       const nextItems = getHistoryItems(historyResponse);
+      const responseTotal = getFilteredHistoryTotal(historyResponse);
 
       if (nextItems.length === 0 && safePage > 1) {
-        const statsResponse = await getPredictionStats();
-        const updatedTotal = getHistoryTotal(statsResponse);
+        const statsResponse = hasAppliedDateFilter
+          ? stats
+          : await getPredictionStats();
+        const updatedTotal = responseTotal ?? (
+          hasAppliedDateFilter ? null : getHistoryTotal(statsResponse)
+        );
         const fallbackPage = updatedTotal === null
           ? Math.max(1, safePage - 1)
           : Math.max(1, Math.ceil(updatedTotal / HISTORY_PAGE_SIZE));
-        const fallbackResponse = await getPredictions({
-          limit: HISTORY_PAGE_SIZE,
-          offset: (fallbackPage - 1) * HISTORY_PAGE_SIZE,
-        });
+        const fallbackResponse = await getPredictions(
+          buildHistoryRequest(fallbackPage),
+        );
 
         setHistoryItems(getHistoryItems(fallbackResponse));
+        setHistoryResultTotal(
+          getFilteredHistoryTotal(fallbackResponse) ?? updatedTotal,
+        );
         setCurrentPage(fallbackPage);
         setStats(statsResponse);
       } else {
         setHistoryItems(nextItems);
+        setHistoryResultTotal(responseTotal);
         setCurrentPage(safePage);
       }
 
@@ -470,18 +553,29 @@ function HistoryPage({ onStartPrediction, serverActionsUnavailable = false }) {
 
     try {
       await deletePrediction(recordId);
-      const updatedStats = await getPredictionStats();
-      const updatedTotal = getHistoryTotal(updatedStats);
+      const [historyResponse, updatedStats] = await Promise.all([
+        getPredictions(buildHistoryRequest(currentPage)),
+        getPredictionStats(),
+      ]);
+      const filteredTotal = getFilteredHistoryTotal(historyResponse);
+      const hasAppliedDateFilter = Boolean(
+        appliedDateFilter.startDate || appliedDateFilter.endDate,
+      );
+      const updatedTotal = filteredTotal ?? (
+        hasAppliedDateFilter ? null : getHistoryTotal(updatedStats)
+      );
       const updatedTotalPages = updatedTotal === null
         ? Math.max(1, currentPage)
         : Math.max(1, Math.ceil(updatedTotal / HISTORY_PAGE_SIZE));
       const safePage = Math.min(currentPage, updatedTotalPages);
-      const historyResponse = await getPredictions({
-        limit: HISTORY_PAGE_SIZE,
-        offset: (safePage - 1) * HISTORY_PAGE_SIZE,
-      });
+      const safeHistoryResponse = safePage === currentPage
+        ? historyResponse
+        : await getPredictions(buildHistoryRequest(safePage));
 
-      setHistoryItems(getHistoryItems(historyResponse));
+      setHistoryItems(getHistoryItems(safeHistoryResponse));
+      setHistoryResultTotal(
+        getFilteredHistoryTotal(safeHistoryResponse) ?? updatedTotal,
+      );
       setCurrentPage(safePage);
       setStats(updatedStats);
     } catch (error) {
@@ -490,6 +584,95 @@ function HistoryPage({ onStartPrediction, serverActionsUnavailable = false }) {
       pageRequestInFlightRef.current = false;
       setIsPageLoading(false);
       setDeletingId("");
+    }
+  };
+
+  const applyHistoryDateFilter = async (event) => {
+    event?.preventDefault();
+
+    if (
+      isLoading
+      ||
+      pageRequestInFlightRef.current
+      || serverActionsUnavailable
+    ) {
+      return;
+    }
+
+    if (
+      dateFilterStart
+      && dateFilterEnd
+      && dateFilterStart > dateFilterEnd
+    ) {
+      setDateFilterError(
+        "Tanggal awal tidak boleh setelah tanggal akhir.",
+      );
+      return;
+    }
+
+    const nextFilter = {
+      startDate: dateFilterStart,
+      endDate: dateFilterEnd,
+    };
+
+    pageRequestInFlightRef.current = true;
+    setIsPageLoading(true);
+    setDateFilterError("");
+    setErrorMessage("");
+
+    try {
+      const historyResponse = await getPredictions(
+        buildHistoryRequest(1, nextFilter),
+      );
+
+      setHistoryItems(getHistoryItems(historyResponse));
+      setHistoryResultTotal(getFilteredHistoryTotal(historyResponse));
+      setAppliedDateFilter(nextFilter);
+      setCurrentPage(1);
+    } catch (error) {
+      setDateFilterError(
+        error.message || "Filter tanggal gagal diterapkan.",
+      );
+    } finally {
+      pageRequestInFlightRef.current = false;
+      setIsPageLoading(false);
+    }
+  };
+
+  const resetHistoryDateFilter = async () => {
+    if (
+      isLoading
+      ||
+      pageRequestInFlightRef.current
+      || serverActionsUnavailable
+    ) {
+      return;
+    }
+
+    const emptyFilter = { startDate: "", endDate: "" };
+    pageRequestInFlightRef.current = true;
+    setIsPageLoading(true);
+    setDateFilterError("");
+    setErrorMessage("");
+
+    try {
+      const historyResponse = await getPredictions(
+        buildHistoryRequest(1, emptyFilter),
+      );
+
+      setDateFilterStart("");
+      setDateFilterEnd("");
+      setAppliedDateFilter(emptyFilter);
+      setHistoryItems(getHistoryItems(historyResponse));
+      setHistoryResultTotal(getFilteredHistoryTotal(historyResponse));
+      setCurrentPage(1);
+    } catch (error) {
+      setDateFilterError(
+        error.message || "Filter tanggal gagal direset.",
+      );
+    } finally {
+      pageRequestInFlightRef.current = false;
+      setIsPageLoading(false);
     }
   };
 
@@ -534,7 +717,12 @@ function HistoryPage({ onStartPrediction, serverActionsUnavailable = false }) {
       historyItems.length,
     ),
   );
-  const historyTotal = getHistoryTotal(stats);
+  const hasActiveDateFilter = Boolean(
+    appliedDateFilter.startDate || appliedDateFilter.endDate,
+  );
+  const historyTotal = historyResultTotal ?? (
+    hasActiveDateFilter ? null : getHistoryTotal(stats)
+  );
   const totalPages = historyTotal === null
     ? null
     : Math.max(1, Math.ceil(historyTotal / HISTORY_PAGE_SIZE));
@@ -550,8 +738,11 @@ function HistoryPage({ onStartPrediction, serverActionsUnavailable = false }) {
     ? historyItems.length === HISTORY_PAGE_SIZE
     : currentPage < totalPages;
   const isPaginationBusy = isPageLoading || Boolean(deletingId);
-  const hasActiveFilters = Boolean(
+  const hasActivePageFilters = Boolean(
     searchTerm.trim() || classFilter !== "all",
+  );
+  const activeDateFilterSummary = formatDateFilterSummary(
+    appliedDateFilter,
   );
   const tbsStats = stats?.tbs_stats;
   const totalTbs = toSafeCount(tbsStats?.total_tbs);
@@ -741,6 +932,98 @@ function HistoryPage({ onStartPrediction, serverActionsUnavailable = false }) {
       </section>
 
       <Card
+        className="history-date-filter-card"
+        aria-labelledby="history-date-filter-title"
+      >
+        <div className="history-date-filter-heading">
+          <div>
+            <p>Filter riwayat</p>
+            <h2 id="history-date-filter-title">Tanggal pemeriksaan</h2>
+          </div>
+          <p>Pilih salah satu tanggal atau gunakan rentang tanggal.</p>
+        </div>
+
+        <form
+          className="history-date-filter-form"
+          onSubmit={applyHistoryDateFilter}
+        >
+          <FormField
+            id="history-filter-start-date"
+            label="Dari tanggal"
+            type="date"
+            value={dateFilterStart}
+            onChange={(event) => {
+              setDateFilterStart(event.target.value);
+              setDateFilterError("");
+            }}
+            disabled={
+              isLoading
+              || isPaginationBusy
+              || serverActionsUnavailable
+            }
+            error={dateFilterError || undefined}
+          />
+          <FormField
+            id="history-filter-end-date"
+            label="Sampai tanggal"
+            type="date"
+            value={dateFilterEnd}
+            onChange={(event) => {
+              setDateFilterEnd(event.target.value);
+              setDateFilterError("");
+            }}
+            disabled={
+              isLoading
+              || isPaginationBusy
+              || serverActionsUnavailable
+            }
+            aria-invalid={dateFilterError ? "true" : undefined}
+            aria-describedby={
+              dateFilterError ? "history-filter-start-date-error" : undefined
+            }
+          />
+          <div className="history-date-filter-actions">
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={resetHistoryDateFilter}
+              disabled={
+                isLoading
+                || isPaginationBusy
+                || serverActionsUnavailable
+                || !(
+                  dateFilterStart
+                  || dateFilterEnd
+                  || hasActiveDateFilter
+                )
+              }
+            >
+              Reset
+            </Button>
+            <Button
+              type="submit"
+              variant="secondary"
+              disabled={
+                isLoading
+                || isPaginationBusy
+                || serverActionsUnavailable
+              }
+              aria-busy={isPageLoading}
+            >
+              {isPageLoading ? "Menerapkan..." : "Terapkan"}
+            </Button>
+          </div>
+        </form>
+
+        {activeDateFilterSummary && (
+          <p className="history-date-filter-summary" role="status">
+            <Icon name="calendar" size={17} />
+            {activeDateFilterSummary}
+          </p>
+        )}
+      </Card>
+
+      <Card
         className="history-report-card"
         aria-labelledby="history-report-title"
       >
@@ -821,6 +1104,8 @@ function HistoryPage({ onStartPrediction, serverActionsUnavailable = false }) {
           title={
             serverActionsUnavailable && historyItems.length === 0
               ? "Riwayat belum dapat dimuat"
+              : hasActiveDateFilter && historyItems.length === 0
+                ? "Tidak ada prediksi pada rentang tanggal ini"
               : historyItems.length
                 ? "Tidak ada hasil yang cocok"
                 : "Belum ada riwayat"
@@ -828,19 +1113,29 @@ function HistoryPage({ onStartPrediction, serverActionsUnavailable = false }) {
           description={
             serverActionsUnavailable && historyItems.length === 0
               ? "Hubungkan perangkat ke server untuk memuat riwayat."
+              : hasActiveDateFilter && historyItems.length === 0
+                ? "Pilih rentang lain atau reset filter untuk melihat seluruh riwayat."
               : historyItems.length
                 ? "Ubah kata pencarian atau filter kematangan."
                 : "Mulai pemeriksaan TBS agar hasilnya tersimpan di halaman ini."
           }
           actionLabel={
-            historyItems.length || serverActionsUnavailable
-              ? undefined
-              : "Mulai prediksi"
+            hasActiveDateFilter
+              && historyItems.length === 0
+              && !serverActionsUnavailable
+              ? "Reset filter"
+              : historyItems.length || serverActionsUnavailable
+                ? undefined
+                : "Mulai prediksi"
           }
           onAction={
-            historyItems.length || serverActionsUnavailable
-              ? undefined
-              : onStartPrediction
+            hasActiveDateFilter
+              && historyItems.length === 0
+              && !serverActionsUnavailable
+              ? resetHistoryDateFilter
+              : historyItems.length || serverActionsUnavailable
+                ? undefined
+                : onStartPrediction
           }
         />
       ) : (
@@ -931,7 +1226,7 @@ function HistoryPage({ onStartPrediction, serverActionsUnavailable = false }) {
               : `Menampilkan ${historyItems.length} riwayat pada halaman ${currentPage}.`}
           </p>
 
-          {hasActiveFilters && (
+          {hasActivePageFilters && (
             <p className="history-filter-scope">
               {filteredItems.length} hasil cocok dari {historyItems.length} riwayat
               pada halaman ini. Pencarian dan filter belum mencakup halaman lain.
