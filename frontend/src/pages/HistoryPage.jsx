@@ -6,6 +6,7 @@ import {
   getPredictionStats,
   getPredictions,
   updatePredictionLocationLabel,
+  updatePredictionMetadata,
 } from "../services/api";
 import Alert from "../components/ui/Alert";
 import Button from "../components/ui/Button";
@@ -139,6 +140,29 @@ function formatDateFilterSummary({ startDate, endDate }) {
   return "";
 }
 
+function formatPredictionDisplayTitle(record) {
+  const savedTitle = String(record?.title || "").trim();
+  if (savedTitle) return savedTitle;
+
+  const date = new Date(record?.created_at);
+  if (Number.isNaN(date.getTime())) return "Prediksi tanpa judul";
+
+  const dateLabel = new Intl.DateTimeFormat("id-ID", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    timeZone: "Asia/Jakarta",
+  }).format(date);
+  const timeLabel = new Intl.DateTimeFormat("id-ID", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+    timeZone: "Asia/Jakarta",
+  }).format(date).replace(".", ":");
+
+  return `Prediksi ${dateLabel} • ${timeLabel}`;
+}
+
 function getPaginationItems(currentPage, totalPages) {
   if (!Number.isFinite(totalPages) || totalPages < 1) return [];
 
@@ -194,6 +218,8 @@ function HistoryPage({ onStartPrediction, serverActionsUnavailable = false }) {
   const [historyResultTotal, setHistoryResultTotal] = useState(null);
 
   const [classFilter, setClassFilter] = useState("all");
+  const [titleQuery, setTitleQuery] = useState("");
+  const [appliedTitleQuery, setAppliedTitleQuery] = useState("");
   const [dateFilterStart, setDateFilterStart] = useState("");
   const [dateFilterEnd, setDateFilterEnd] = useState("");
   const [appliedDateFilter, setAppliedDateFilter] = useState({
@@ -223,15 +249,22 @@ function HistoryPage({ onStartPrediction, serverActionsUnavailable = false }) {
   const [locationLabelDraft, setLocationLabelDraft] = useState("");
   const [isSavingLocationLabel, setIsSavingLocationLabel] = useState(false);
   const [locationLabelError, setLocationLabelError] = useState("");
+  const [isEditingMetadata, setIsEditingMetadata] = useState(false);
+  const [metadataTitleDraft, setMetadataTitleDraft] = useState("");
+  const [metadataDescriptionDraft, setMetadataDescriptionDraft] = useState("");
+  const [isSavingMetadata, setIsSavingMetadata] = useState(false);
+  const [metadataError, setMetadataError] = useState("");
 
   const buildHistoryRequest = (
     page,
     dateFilter = appliedDateFilter,
+    query = appliedTitleQuery,
   ) => ({
     limit: HISTORY_PAGE_SIZE,
     offset: (page - 1) * HISTORY_PAGE_SIZE,
     startDate: dateFilter.startDate || undefined,
     endDate: dateFilter.endDate || undefined,
+    query: query || undefined,
   });
 
   const loadHistory = async () => {
@@ -248,7 +281,9 @@ function HistoryPage({ onStartPrediction, serverActionsUnavailable = false }) {
       ]);
       const filteredTotal = getFilteredHistoryTotal(historyResponse);
       const updatedTotal = filteredTotal ?? (
-        appliedDateFilter.startDate || appliedDateFilter.endDate
+        appliedDateFilter.startDate
+        || appliedDateFilter.endDate
+        || appliedTitleQuery
           ? null
           : getHistoryTotal(statsResponse)
       );
@@ -318,11 +353,13 @@ function HistoryPage({ onStartPrediction, serverActionsUnavailable = false }) {
   const changeHistoryPage = async (nextPage) => {
     if (serverActionsUnavailable) return;
 
-    const hasAppliedDateFilter = Boolean(
-      appliedDateFilter.startDate || appliedDateFilter.endDate,
+    const hasAppliedServerFilter = Boolean(
+      appliedDateFilter.startDate
+      || appliedDateFilter.endDate
+      || appliedTitleQuery,
     );
     const currentHistoryTotal = historyResultTotal ?? (
-      hasAppliedDateFilter ? null : getHistoryTotal(stats)
+      hasAppliedServerFilter ? null : getHistoryTotal(stats)
     );
     const totalPages = currentHistoryTotal === null
       ? null
@@ -350,11 +387,11 @@ function HistoryPage({ onStartPrediction, serverActionsUnavailable = false }) {
       const responseTotal = getFilteredHistoryTotal(historyResponse);
 
       if (nextItems.length === 0 && safePage > 1) {
-        const statsResponse = hasAppliedDateFilter
+        const statsResponse = hasAppliedServerFilter
           ? stats
           : await getPredictionStats();
         const updatedTotal = responseTotal ?? (
-          hasAppliedDateFilter ? null : getHistoryTotal(statsResponse)
+          hasAppliedServerFilter ? null : getHistoryTotal(statsResponse)
         );
         const fallbackPage = updatedTotal === null
           ? Math.max(1, safePage - 1)
@@ -414,6 +451,11 @@ function HistoryPage({ onStartPrediction, serverActionsUnavailable = false }) {
     setLocationLabelDraft("");
     setIsSavingLocationLabel(false);
     setLocationLabelError("");
+    setIsEditingMetadata(false);
+    setMetadataTitleDraft("");
+    setMetadataDescriptionDraft("");
+    setIsSavingMetadata(false);
+    setMetadataError("");
   };
 
   const openPredictionDetail = async (item) => {
@@ -437,6 +479,11 @@ function HistoryPage({ onStartPrediction, serverActionsUnavailable = false }) {
     setLocationLabelDraft("");
     setIsSavingLocationLabel(false);
     setLocationLabelError("");
+    setIsEditingMetadata(false);
+    setMetadataTitleDraft("");
+    setMetadataDescriptionDraft("");
+    setIsSavingMetadata(false);
+    setMetadataError("");
     setIsDetailLoading(true);
 
     try {
@@ -525,6 +572,73 @@ function HistoryPage({ onStartPrediction, serverActionsUnavailable = false }) {
     }
   };
 
+  const startEditingMetadata = () => {
+    setMetadataTitleDraft(String(predictionDetail?.title || ""));
+    setMetadataDescriptionDraft(
+      String(predictionDetail?.description || ""),
+    );
+    setMetadataError("");
+    setIsEditingMetadata(true);
+  };
+
+  const cancelEditingMetadata = () => {
+    if (isSavingMetadata) return;
+
+    setMetadataTitleDraft("");
+    setMetadataDescriptionDraft("");
+    setMetadataError("");
+    setIsEditingMetadata(false);
+  };
+
+  const savePredictionMetadata = async (event) => {
+    event.preventDefault();
+
+    if (serverActionsUnavailable || isSavingMetadata) return;
+
+    const recordId = predictionDetail?.id || predictionDetail?.record_id;
+    if (!recordId) return;
+
+    setIsSavingMetadata(true);
+    setMetadataError("");
+
+    try {
+      const response = await updatePredictionMetadata(recordId, {
+        title: metadataTitleDraft,
+        description: metadataDescriptionDraft,
+      });
+      const metadata = response?.metadata || {};
+      const updatedMetadata = {
+        title: metadata.title ?? null,
+        description: metadata.description ?? null,
+      };
+
+      setPredictionDetail((current) => ({
+        ...current,
+        ...updatedMetadata,
+      }));
+      setSelectedHistoryItem((current) => (
+        current
+          ? { ...current, ...updatedMetadata }
+          : current
+      ));
+      setHistoryItems((current) =>
+        current.map((item) => (
+          String(item.id || item.record_id) === String(recordId)
+            ? { ...item, ...updatedMetadata }
+            : item
+        )));
+      setMetadataTitleDraft("");
+      setMetadataDescriptionDraft("");
+      setIsEditingMetadata(false);
+    } catch (error) {
+      setMetadataError(
+        error.message || "Judul dan catatan gagal disimpan.",
+      );
+    } finally {
+      setIsSavingMetadata(false);
+    }
+  };
+
   const handleDelete = async (recordId) => {
     if (pageRequestInFlightRef.current || serverActionsUnavailable) return;
 
@@ -541,11 +655,13 @@ function HistoryPage({ onStartPrediction, serverActionsUnavailable = false }) {
         getPredictionStats(),
       ]);
       const filteredTotal = getFilteredHistoryTotal(historyResponse);
-      const hasAppliedDateFilter = Boolean(
-        appliedDateFilter.startDate || appliedDateFilter.endDate,
+      const hasAppliedServerFilter = Boolean(
+        appliedDateFilter.startDate
+        || appliedDateFilter.endDate
+        || appliedTitleQuery,
       );
       const updatedTotal = filteredTotal ?? (
-        hasAppliedDateFilter ? null : getHistoryTotal(updatedStats)
+        hasAppliedServerFilter ? null : getHistoryTotal(updatedStats)
       );
       const updatedTotalPages = updatedTotal === null
         ? Math.max(1, currentPage)
@@ -597,6 +713,7 @@ function HistoryPage({ onStartPrediction, serverActionsUnavailable = false }) {
       startDate: dateFilterStart,
       endDate: dateFilterEnd,
     };
+    const nextTitleQuery = titleQuery.trim();
 
     pageRequestInFlightRef.current = true;
     setIsPageLoading(true);
@@ -605,16 +722,17 @@ function HistoryPage({ onStartPrediction, serverActionsUnavailable = false }) {
 
     try {
       const historyResponse = await getPredictions(
-        buildHistoryRequest(1, nextFilter),
+        buildHistoryRequest(1, nextFilter, nextTitleQuery),
       );
 
       setHistoryItems(getHistoryItems(historyResponse));
       setHistoryResultTotal(getFilteredHistoryTotal(historyResponse));
       setAppliedDateFilter(nextFilter);
+      setAppliedTitleQuery(nextTitleQuery);
       setCurrentPage(1);
     } catch (error) {
       setDateFilterError(
-        error.message || "Filter tanggal gagal diterapkan.",
+        error.message || "Filter riwayat gagal diterapkan.",
       );
     } finally {
       pageRequestInFlightRef.current = false;
@@ -640,9 +758,11 @@ function HistoryPage({ onStartPrediction, serverActionsUnavailable = false }) {
 
     try {
       const historyResponse = await getPredictions(
-        buildHistoryRequest(1, emptyFilter),
+        buildHistoryRequest(1, emptyFilter, ""),
       );
 
+      setTitleQuery("");
+      setAppliedTitleQuery("");
       setDateFilterStart("");
       setDateFilterEnd("");
       setAppliedDateFilter(emptyFilter);
@@ -703,8 +823,10 @@ function HistoryPage({ onStartPrediction, serverActionsUnavailable = false }) {
   const hasActiveDateFilter = Boolean(
     appliedDateFilter.startDate || appliedDateFilter.endDate,
   );
+  const hasActiveTitleSearch = Boolean(appliedTitleQuery);
+  const hasActiveServerFilter = hasActiveDateFilter || hasActiveTitleSearch;
   const historyTotal = historyResultTotal ?? (
-    hasActiveDateFilter ? null : getHistoryTotal(stats)
+    hasActiveServerFilter ? null : getHistoryTotal(stats)
   );
   const totalPages = historyTotal === null
     ? null
@@ -880,13 +1002,31 @@ function HistoryPage({ onStartPrediction, serverActionsUnavailable = false }) {
             <p>Filter riwayat</p>
             <h2 id="history-date-filter-title">Penyaringan hasil</h2>
           </div>
-          <p>Pilih tanggal dan kelas kematangan yang ingin ditampilkan.</p>
+          <p>Cari judul atau pilih tanggal dan kelas kematangan.</p>
         </div>
 
         <form
           className="history-date-filter-form"
           onSubmit={applyHistoryDateFilter}
         >
+          <FormField
+            id="history-title-search"
+            className="history-title-search"
+            label="Cari judul"
+            type="search"
+            maxLength={120}
+            value={titleQuery}
+            onChange={(event) => {
+              setTitleQuery(event.target.value);
+              setDateFilterError("");
+            }}
+            placeholder="Contoh: Lahan A - Pohon 12"
+            disabled={
+              isLoading
+              || isPaginationBusy
+              || serverActionsUnavailable
+            }
+          />
           <FormField
             id="history-filter-start-date"
             label="Dari tanggal"
@@ -946,7 +1086,9 @@ function HistoryPage({ onStartPrediction, serverActionsUnavailable = false }) {
                 || !(
                   dateFilterStart
                   || dateFilterEnd
+                  || titleQuery
                   || hasActiveDateFilter
+                  || hasActiveTitleSearch
                 )
               }
             >
@@ -984,6 +1126,12 @@ function HistoryPage({ onStartPrediction, serverActionsUnavailable = false }) {
           <p className="history-date-filter-summary" role="status">
             <Icon name="calendar" size={17} />
             {activeDateFilterSummary}
+          </p>
+        )}
+        {hasActiveTitleSearch && (
+          <p className="history-date-filter-summary" role="status">
+            <Icon name="scan" size={17} />
+            Judul memuat “{appliedTitleQuery}”.
           </p>
         )}
       </Card>
@@ -1069,6 +1217,8 @@ function HistoryPage({ onStartPrediction, serverActionsUnavailable = false }) {
           title={
             serverActionsUnavailable && historyItems.length === 0
               ? "Riwayat belum dapat dimuat"
+              : hasActiveTitleSearch && historyItems.length === 0
+                ? "Tidak ada judul yang cocok"
               : hasActiveDateFilter && historyItems.length === 0
                 ? "Tidak ada prediksi pada rentang tanggal ini"
               : historyItems.length && classFilter !== "all"
@@ -1078,6 +1228,8 @@ function HistoryPage({ onStartPrediction, serverActionsUnavailable = false }) {
           description={
             serverActionsUnavailable && historyItems.length === 0
               ? "Hubungkan perangkat ke server untuk memuat riwayat."
+              : hasActiveTitleSearch && historyItems.length === 0
+                ? "Ubah pencarian judul atau reset filter untuk melihat seluruh riwayat."
               : hasActiveDateFilter && historyItems.length === 0
                 ? "Pilih rentang lain atau reset filter untuk melihat seluruh riwayat."
               : historyItems.length && classFilter !== "all"
@@ -1085,7 +1237,7 @@ function HistoryPage({ onStartPrediction, serverActionsUnavailable = false }) {
                 : "Mulai pemeriksaan TBS agar hasilnya tersimpan di halaman ini."
           }
           actionLabel={
-            hasActiveDateFilter
+            hasActiveServerFilter
               && historyItems.length === 0
               && !serverActionsUnavailable
               ? "Reset filter"
@@ -1094,7 +1246,7 @@ function HistoryPage({ onStartPrediction, serverActionsUnavailable = false }) {
                 : "Mulai prediksi"
           }
           onAction={
-            hasActiveDateFilter
+            hasActiveServerFilter
               && historyItems.length === 0
               && !serverActionsUnavailable
               ? resetHistoryDateFilter
@@ -1138,6 +1290,9 @@ function HistoryPage({ onStartPrediction, serverActionsUnavailable = false }) {
                   </div>
 
                   <div className="history-card-body">
+                    <h2 className="history-card-title">
+                      {formatPredictionDisplayTitle(item)}
+                    </h2>
                     <time dateTime={item.created_at}>{formatDate(item.created_at)}</time>
                     <div className="history-card-heading">
                       <MaturityBadge value={className} />
@@ -1298,6 +1453,100 @@ function HistoryPage({ onStartPrediction, serverActionsUnavailable = false }) {
 
               {!isDetailLoading && !detailError && detailRecord && (
                 <>
+                  <section className="history-detail-title-section">
+                    {isEditingMetadata ? (
+                      <form
+                        className="history-detail-metadata-editor"
+                        onSubmit={savePredictionMetadata}
+                      >
+                        <label htmlFor="history-metadata-title">
+                          Judul
+                        </label>
+                        <input
+                          id="history-metadata-title"
+                          type="text"
+                          maxLength={120}
+                          value={metadataTitleDraft}
+                          onChange={(event) =>
+                            setMetadataTitleDraft(event.target.value)
+                          }
+                          placeholder="Contoh: Lahan A - Pohon 12"
+                          disabled={isSavingMetadata}
+                          autoFocus
+                        />
+                        <label htmlFor="history-metadata-description">
+                          Catatan
+                        </label>
+                        <textarea
+                          id="history-metadata-description"
+                          maxLength={500}
+                          rows={4}
+                          value={metadataDescriptionDraft}
+                          onChange={(event) =>
+                            setMetadataDescriptionDraft(event.target.value)
+                          }
+                          placeholder="Tambahkan informasi yang membantu mengenali hasil ini."
+                          disabled={isSavingMetadata}
+                        />
+                        <small>
+                          Kosongkan judul untuk kembali memakai judul otomatis.
+                        </small>
+                        {metadataError && (
+                          <Alert tone="error" role="alert">
+                            {metadataError}
+                          </Alert>
+                        )}
+                        <div className="history-detail-metadata-actions">
+                          <Button
+                            type="submit"
+                            disabled={
+                              isSavingMetadata
+                              || serverActionsUnavailable
+                            }
+                          >
+                            {isSavingMetadata ? "Menyimpan..." : "Simpan"}
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="secondary"
+                            onClick={cancelEditingMetadata}
+                            disabled={isSavingMetadata}
+                          >
+                            Batal
+                          </Button>
+                        </div>
+                      </form>
+                    ) : (
+                      <>
+                        <div className="history-detail-title-heading">
+                          <div>
+                            <small>Judul prediksi</small>
+                            <h2>
+                              {formatPredictionDisplayTitle(detailRecord)}
+                            </h2>
+                          </div>
+                          <Button
+                            type="button"
+                            variant="secondary"
+                            size="sm"
+                            onClick={startEditingMetadata}
+                            disabled={serverActionsUnavailable}
+                          >
+                            <Icon name="edit" size={17} />
+                            Edit
+                          </Button>
+                        </div>
+                        <div className="history-detail-description">
+                          <small>Catatan</small>
+                          <p>
+                            {detailRecord.description
+                              || "Belum ada catatan untuk prediksi ini."}
+                          </p>
+                        </div>
+                      </>
+                    )}
+                  </section>
+
                   <div className="history-detail-primary">
                     <figure className="history-detail-figure">
                       {detailImageUrl ? (

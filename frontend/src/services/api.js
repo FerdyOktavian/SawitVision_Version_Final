@@ -290,6 +290,7 @@ export async function getPredictions({
   offset = 0,
   startDate,
   endDate,
+  query,
 } = {}) {
   const searchParams = new URLSearchParams({
     limit: String(limit),
@@ -302,6 +303,10 @@ export async function getPredictions({
 
   if (endDate) {
     searchParams.set("end_date", endDate);
+  }
+
+  if (query) {
+    searchParams.set("q", query);
   }
 
   return apiRequest(`/predictions?${searchParams.toString()}`, {
@@ -320,6 +325,19 @@ export async function updatePredictionLocationLabel(recordId, locationLabel) {
     method: "PATCH",
     body: JSON.stringify({
       location_label: locationLabel,
+    }),
+  });
+}
+
+export async function updatePredictionMetadata(
+  recordId,
+  { title, description },
+) {
+  return apiRequest(`/predictions/${recordId}`, {
+    method: "PATCH",
+    body: JSON.stringify({
+      title,
+      description,
     }),
   });
 }

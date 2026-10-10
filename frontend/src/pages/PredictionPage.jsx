@@ -3,6 +3,7 @@ import {
   predictPalmImage,
   reverseGeocodeLocation,
   updatePredictionLocationLabel,
+  updatePredictionMetadata,
 } from "../services/api";
 import {
   captureOptionalLocation,
@@ -249,6 +250,11 @@ function PredictionPage({
   const [resultLocationDraft, setResultLocationDraft] = useState("");
   const [isSavingResultLocation, setIsSavingResultLocation] = useState(false);
   const [resultLocationEditError, setResultLocationEditError] = useState("");
+  const [resultMetadataTitle, setResultMetadataTitle] = useState("");
+  const [resultMetadataDescription, setResultMetadataDescription] = useState("");
+  const [resultMetadataStatus, setResultMetadataStatus] = useState("idle");
+  const [isSavingResultMetadata, setIsSavingResultMetadata] = useState(false);
+  const [resultMetadataError, setResultMetadataError] = useState("");
   const [resultImageErrors, setResultImageErrors] = useState({});
   const [loadedResultImages, setLoadedResultImages] = useState({});
   const [savedPhotoSummary, setSavedPhotoSummary] = useState({
@@ -274,7 +280,11 @@ function PredictionPage({
       ? localSaveFeedback
       : null;
   const isBusy =
-    loading || isPreparingLocation || isSavingResultLocation || isSavingPhoto;
+    loading
+    || isPreparingLocation
+    || isSavingResultLocation
+    || isSavingResultMetadata
+    || isSavingPhoto;
   const isLiveCameraVisible = cameraActive && mode === "camera" && !preview;
 
   const resultPayload = useMemo(() => {
@@ -394,6 +404,9 @@ function PredictionPage({
     "Nama lokasi tidak tersedia";
   const resultRecordId = resultPayload?.record_id || null;
   const canUpdateResultLocation = Boolean(resultRecordId);
+  const canNameResult = Boolean(
+    resultRecordId && resultPayload?.history?.saved === true,
+  );
   const showResultAutoName = Boolean(
     resultLocationLabel &&
       resultLocationAutoName &&
@@ -414,6 +427,14 @@ function PredictionPage({
     description: "Hasil klasifikasi berhasil diperoleh dari sistem.",
     recommendation:
       "Gunakan hasil klasifikasi sebagai informasi pendukung pemeriksaan.",
+  };
+
+  const resetResultMetadata = () => {
+    setResultMetadataTitle("");
+    setResultMetadataDescription("");
+    setResultMetadataStatus("idle");
+    setIsSavingResultMetadata(false);
+    setResultMetadataError("");
   };
 
   const stopCamera = () => {
@@ -877,6 +898,7 @@ function PredictionPage({
     setIsPreparingLocation(false);
     resetLocationStatus();
     resetResultLocationEditor();
+    resetResultMetadata();
     resetZoom();
 
     if (galleryRef.current) {
@@ -886,6 +908,7 @@ function PredictionPage({
 
   const submitPrediction = async (location = null) => {
     resetResultLocationEditor();
+    resetResultMetadata();
     setLoading(true);
     setError("");
     setResult(null);
@@ -895,6 +918,11 @@ function PredictionPage({
     try {
       const response = await predictPalmImage(file, source, location);
       setResult(response);
+      setResultMetadataStatus(
+        response?.record_id || response?.result?.record_id
+          ? "pending"
+          : "idle",
+      );
     } catch (requestError) {
       if (requestError?.status === 413) {
         setError("Ukuran atau resolusi foto terlalu besar untuk diproses.");
@@ -1148,6 +1176,70 @@ function PredictionPage({
       resultLocationSaveRef.current = false;
       setIsSavingResultLocation(false);
     }
+  };
+
+  const saveResultMetadata = async (event) => {
+    event.preventDefault();
+
+    if (
+      !canNameResult
+      || isSavingResultMetadata
+      || serverActionsUnavailable
+    ) {
+      return;
+    }
+
+    const normalizedTitle = resultMetadataTitle.trim();
+    if (!normalizedTitle) {
+      setResultMetadataError(
+        "Isi judul prediksi atau pilih Lewati.",
+      );
+      return;
+    }
+
+    setIsSavingResultMetadata(true);
+    setResultMetadataError("");
+
+    try {
+      const response = await updatePredictionMetadata(resultRecordId, {
+        title: normalizedTitle,
+        description: resultMetadataDescription,
+      });
+      const metadata = response?.metadata || {};
+
+      const updateMetadata = (payload) => ({
+        ...payload,
+        title: metadata.title ?? normalizedTitle,
+        description: metadata.description ?? null,
+      });
+
+      setResult((current) => {
+        if (current?.result && typeof current.result === "object") {
+          return {
+            ...current,
+            result: updateMetadata(current.result),
+          };
+        }
+
+        return updateMetadata(current);
+      });
+      setResultMetadataTitle(metadata.title ?? normalizedTitle);
+      setResultMetadataDescription(metadata.description ?? "");
+      setResultMetadataStatus("saved");
+    } catch (requestError) {
+      setResultMetadataError(
+        requestError.message || "Judul prediksi gagal disimpan.",
+      );
+    } finally {
+      setIsSavingResultMetadata(false);
+    }
+  };
+
+  const skipResultMetadata = () => {
+    if (isSavingResultMetadata) return;
+
+    setResultMetadataError("");
+    setResultMetadataStatus("skipped");
   };
 
   return (
@@ -1682,6 +1774,91 @@ function PredictionPage({
             </section>
           )}
 
+          {canNameResult && resultMetadataStatus !== "skipped" && (
+            <section
+              className="prediction-v2-result-metadata"
+              aria-labelledby="prediction-result-metadata-title"
+            >
+              <div className="prediction-v2-section-heading">
+                <p className="prediction-v2-result-label">Identitas Riwayat</p>
+                <h2 id="prediction-result-metadata-title">
+                  Beri nama hasil ini
+                </h2>
+              </div>
+
+              {resultMetadataStatus === "saved" ? (
+                <Alert tone="success" role="status">
+                  Judul “{resultMetadataTitle}” berhasil disimpan.
+                </Alert>
+              ) : (
+                <form
+                  className="prediction-v2-result-metadata-form"
+                  onSubmit={saveResultMetadata}
+                >
+                  <p>
+                    Berikan nama agar hasil mudah ditemukan di Riwayat.
+                  </p>
+                  <label htmlFor="prediction-result-metadata-title-input">
+                    Judul prediksi
+                  </label>
+                  <input
+                    id="prediction-result-metadata-title-input"
+                    type="text"
+                    maxLength={120}
+                    value={resultMetadataTitle}
+                    onChange={(event) => {
+                      setResultMetadataTitle(event.target.value);
+                      setResultMetadataError("");
+                    }}
+                    placeholder="Contoh: Lahan A - Pohon 12"
+                    disabled={isSavingResultMetadata}
+                  />
+                  <label htmlFor="prediction-result-metadata-description">
+                    Catatan <span>(opsional)</span>
+                  </label>
+                  <textarea
+                    id="prediction-result-metadata-description"
+                    maxLength={500}
+                    rows={3}
+                    value={resultMetadataDescription}
+                    onChange={(event) => {
+                      setResultMetadataDescription(event.target.value);
+                      setResultMetadataError("");
+                    }}
+                    placeholder="Tambahkan informasi singkat tentang hasil ini."
+                    disabled={isSavingResultMetadata}
+                  />
+                  {resultMetadataError && (
+                    <Alert tone="error" role="alert">
+                      {resultMetadataError}
+                    </Alert>
+                  )}
+                  <div className="prediction-v2-result-metadata-actions">
+                    <Button
+                      type="submit"
+                      disabled={
+                        isSavingResultMetadata
+                        || serverActionsUnavailable
+                      }
+                    >
+                      {isSavingResultMetadata
+                        ? "Menyimpan..."
+                        : "Simpan judul"}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      onClick={skipResultMetadata}
+                      disabled={isSavingResultMetadata}
+                    >
+                      Lewati
+                    </Button>
+                  </div>
+                </form>
+              )}
+            </section>
+          )}
+
           <section
             className="prediction-v2-result-location"
             aria-labelledby="prediction-location-result-title"
@@ -1938,7 +2115,9 @@ function PredictionPage({
               type="button"
               variant="secondary"
               onClick={resetInput}
-              disabled={isSavingResultLocation}
+              disabled={
+                isSavingResultLocation || isSavingResultMetadata
+              }
             >
               Periksa gambar lain
             </Button>
@@ -1947,7 +2126,9 @@ function PredictionPage({
               type="button"
               variant="primary"
               onClick={onOpenHistory}
-              disabled={isSavingResultLocation}
+              disabled={
+                isSavingResultLocation || isSavingResultMetadata
+              }
             >
               Lihat riwayat
             </Button>

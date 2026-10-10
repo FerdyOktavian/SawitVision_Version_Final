@@ -54,6 +54,7 @@ from config_utils import (
 from crud import (
     save_prediction_detections,
     save_prediction_record,
+    update_prediction_metadata,
     update_prediction_location_label,
     update_prediction_images,
     get_prediction_records,
@@ -124,6 +125,8 @@ MAX_IMAGE_HEIGHT = env_int(
 ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp"}
 ALLOWED_IMAGE_FORMATS = {"JPEG", "PNG", "WEBP"}
 PREDICTION_SEMAPHORE = asyncio.Semaphore(1)
+MAX_PREDICTION_TITLE_LENGTH = 120
+MAX_PREDICTION_DESCRIPTION_LENGTH = 500
 
 # Pillow checks this while reading image headers. Converting its warning to an
 # exception is scoped to the open operation below so unrelated image work is
@@ -135,6 +138,13 @@ class UpdateLocationLabelRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     location_label: str | None
+
+
+class UpdatePredictionMetadataRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    title: str | None = None
+    description: str | None = None
 
 
 def normalize_optional_location(
@@ -1019,6 +1029,10 @@ def list_predictions(
         None,
         description="Tanggal akhir riwayat dalam format YYYY-MM-DD",
     ),
+    q: str | None = Query(
+        None,
+        description="Pencarian sebagian judul prediksi",
+    ),
     current_user: dict = Depends(get_current_user),
 ):
     def parse_date(value: str | None, parameter_name: str):
@@ -1045,6 +1059,19 @@ def list_predictions(
 
     parsed_start_date = parse_date(start_date, "start_date")
     parsed_end_date = parse_date(end_date, "end_date")
+    normalized_title_query = " ".join(str(q or "").split())
+
+    if len(normalized_title_query) > MAX_PREDICTION_TITLE_LENGTH:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "invalid_history_query",
+                "message": (
+                    "Pencarian judul maksimal "
+                    f"{MAX_PREDICTION_TITLE_LENGTH} karakter."
+                ),
+            },
+        )
 
     if (
         parsed_start_date is not None
@@ -1090,12 +1117,14 @@ def list_predictions(
             offset=offset,
             start_at=start_at,
             end_at=end_at,
+            title_query=normalized_title_query or None,
         )
         filtered_total = count_prediction_records(
             db=db,
             user_id=current_user["id"],
             start_at=start_at,
             end_at=end_at,
+            title_query=normalized_title_query or None,
         )
         return {
             "total": len(records),
@@ -1119,6 +1148,79 @@ def prediction_detail(
         if record is None:
             raise HTTPException(status_code=404, detail="Data prediksi tidak ditemukan")
         return record
+    finally:
+        db.close()
+
+
+@app.patch("/predictions/{record_id}")
+def update_prediction_record_metadata(
+    record_id: str,
+    payload: UpdatePredictionMetadataRequest,
+    request: Request,
+    current_user: dict = Depends(get_current_user),
+):
+    enforce_rate_limit(
+        request,
+        "prediction_metadata_user",
+        limit=30,
+        window_seconds=60,
+        identity=current_user["id"],
+    )
+
+    updates = {}
+
+    if "title" in payload.model_fields_set:
+        normalized_title = " ".join(str(payload.title or "").split())
+        if len(normalized_title) > MAX_PREDICTION_TITLE_LENGTH:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Judul prediksi maksimal "
+                    f"{MAX_PREDICTION_TITLE_LENGTH} karakter."
+                ),
+            )
+        updates["title"] = normalized_title or None
+
+    if "description" in payload.model_fields_set:
+        normalized_description = str(payload.description or "").strip()
+        if len(normalized_description) > MAX_PREDICTION_DESCRIPTION_LENGTH:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Catatan maksimal "
+                    f"{MAX_PREDICTION_DESCRIPTION_LENGTH} karakter."
+                ),
+            )
+        updates["description"] = normalized_description or None
+
+    if not updates:
+        raise HTTPException(
+            status_code=400,
+            detail="Isi judul atau catatan yang ingin diperbarui.",
+        )
+
+    db = SessionLocal()
+    try:
+        updated = update_prediction_metadata(
+            db=db,
+            record_id=record_id,
+            user_id=current_user["id"],
+            updates=updates,
+        )
+        if updated is None:
+            raise HTTPException(
+                status_code=404,
+                detail="Data prediksi tidak ditemukan",
+            )
+
+        return {
+            "message": "Metadata prediksi berhasil diperbarui.",
+            "record_id": updated["id"],
+            "metadata": {
+                "title": updated["title"],
+                "description": updated["description"],
+            },
+        }
     finally:
         db.close()
 

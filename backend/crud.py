@@ -339,6 +339,8 @@ def _prediction_row_to_dict(row) -> dict[str, Any]:
         "image_height": row[10],
         "file_size_bytes": int(row[11] or 0),
         "created_at": row[12].isoformat() if row[12] else None,
+        "title": row[13],
+        "description": row[14],
     }
 
 
@@ -349,6 +351,7 @@ def get_prediction_records(
     offset: int = 0,
     start_at: Optional[datetime] = None,
     end_at: Optional[datetime] = None,
+    title_query: Optional[str] = None,
 ) -> list[dict[str, Any]]:
     """Mengambil daftar riwayat prediksi."""
     conditions = []
@@ -359,6 +362,10 @@ def get_prediction_records(
         conditions.append("created_at >= :start_at")
     if end_at is not None:
         conditions.append("created_at < :end_at")
+    if title_query:
+        conditions.append(
+            "STRPOS(LOWER(title), LOWER(:title_query)) > 0"
+        )
 
     where_sql = f"WHERE {' AND '.join(conditions)}" if conditions else ""
     query_parameters = {
@@ -372,6 +379,8 @@ def get_prediction_records(
         query_parameters["start_at"] = start_at
     if end_at is not None:
         query_parameters["end_at"] = end_at
+    if title_query:
+        query_parameters["title_query"] = title_query
 
     rows = db.execute(
         text(
@@ -389,7 +398,9 @@ def get_prediction_records(
                 image_width,
                 image_height,
                 file_size_bytes,
-                created_at
+                created_at,
+                title,
+                description
             FROM public.prediction_records
             {where_sql}
             ORDER BY created_at DESC
@@ -407,6 +418,7 @@ def count_prediction_records(
     user_id: Optional[str] = None,
     start_at: Optional[datetime] = None,
     end_at: Optional[datetime] = None,
+    title_query: Optional[str] = None,
 ) -> int:
     """Menghitung jumlah prediksi, global atau per pengguna."""
     conditions = []
@@ -417,6 +429,10 @@ def count_prediction_records(
         conditions.append("created_at >= :start_at")
     if end_at is not None:
         conditions.append("created_at < :end_at")
+    if title_query:
+        conditions.append(
+            "STRPOS(LOWER(title), LOWER(:title_query)) > 0"
+        )
 
     where_sql = f"WHERE {' AND '.join(conditions)}" if conditions else ""
     query_parameters = {}
@@ -427,6 +443,8 @@ def count_prediction_records(
         query_parameters["start_at"] = start_at
     if end_at is not None:
         query_parameters["end_at"] = end_at
+    if title_query:
+        query_parameters["title_query"] = title_query
 
     total = db.execute(
         text(
@@ -517,6 +535,8 @@ def get_prediction_record_by_id(
                 image_height,
                 file_size_bytes,
                 created_at,
+                title,
+                description,
                 latitude,
                 longitude,
                 location_accuracy,
@@ -539,23 +559,23 @@ def get_prediction_record_by_id(
         return None
 
     record = _prediction_row_to_dict(row)
-    location_available = row[13] is not None and row[14] is not None
+    location_available = row[15] is not None and row[16] is not None
     record["location"] = {
         "available": location_available,
-        "latitude": float(row[13]) if location_available else None,
-        "longitude": float(row[14]) if location_available else None,
+        "latitude": float(row[15]) if location_available else None,
+        "longitude": float(row[16]) if location_available else None,
         "accuracy_meters": (
-            float(row[15])
-            if location_available and row[15] is not None
+            float(row[17])
+            if location_available and row[17] is not None
             else None
         ),
         "captured_at": (
-            row[16].isoformat()
-            if location_available and row[16] is not None
+            row[18].isoformat()
+            if location_available and row[18] is not None
             else None
         ),
-        "auto_name": row[17],
-        "label": row[18],
+        "auto_name": row[19],
+        "label": row[20],
     }
     detections = get_prediction_detections(db, record_id)
     counts = {class_name: 0 for class_name in DETECTION_CLASS_TO_INDEX}
@@ -822,6 +842,58 @@ def update_prediction_location_label(
         "id": str(row[0]),
         "location_auto_name": row[1],
         "location_label": row[2],
+    }
+
+
+def update_prediction_metadata(
+    db: Session,
+    record_id: str,
+    user_id: str,
+    updates: dict[str, Optional[str]],
+) -> Optional[dict[str, Any]]:
+    """Update explicitly supplied metadata on a user-owned prediction."""
+    allowed_fields = ("title", "description")
+    assignments = []
+    parameters: dict[str, Any] = {
+        "record_id": record_id,
+        "user_id": user_id,
+    }
+
+    for field_name in allowed_fields:
+        if field_name in updates:
+            assignments.append(f"{field_name} = :{field_name}")
+            parameters[field_name] = updates[field_name]
+
+    if not assignments:
+        raise ValueError("Tidak ada metadata yang diperbarui.")
+
+    assignments.append("updated_at = CURRENT_TIMESTAMP")
+
+    try:
+        row = db.execute(
+            text(
+                f"""
+                UPDATE public.prediction_records
+                SET {', '.join(assignments)}
+                WHERE id = :record_id
+                  AND user_id = :user_id
+                RETURNING id, title, description
+                """
+            ),
+            parameters,
+        ).fetchone()
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+
+    if row is None:
+        return None
+
+    return {
+        "id": str(row[0]),
+        "title": row[1],
+        "description": row[2],
     }
 
 
