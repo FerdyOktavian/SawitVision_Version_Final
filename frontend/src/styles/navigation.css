@@ -319,9 +319,78 @@
   font-size: var(--font-size-caption);
 }
 
+.app-update-banner {
+  position: fixed;
+  right: var(--space-4);
+  bottom: calc(
+    var(--shell-nav-height) + env(safe-area-inset-bottom) + var(--space-3)
+  );
+  left: var(--space-4);
+  z-index: 250;
+  width: min(calc(100% - (var(--space-4) * 2)), 42rem);
+  margin-inline: auto;
+  padding: var(--space-3);
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-3);
+  border: 1px solid var(--color-primary-border);
+  border-radius: var(--radius-card);
+  color: var(--color-text);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-raised);
+}
+
+.app-update-banner-icon {
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius-control);
+  color: var(--color-primary);
+  background: var(--color-primary-soft);
+}
+
+.app-update-banner-copy {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.app-update-banner-copy strong {
+  color: var(--color-text-strong);
+  font-size: var(--font-size-small);
+}
+
+.app-update-banner-copy span {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-caption);
+  line-height: var(--line-height-body);
+}
+
 @media (max-width: 479px) {
   .app-connectivity-banner {
     width: min(calc(100% - 1.5rem), var(--container-lg));
     margin-top: var(--space-2);
+  }
+
+  .app-update-banner {
+    right: var(--space-3);
+    left: var(--space-3);
+    width: auto;
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .app-update-banner .ui-button {
+    grid-column: 1 / -1;
+    width: 100%;
+  }
+}
+
+@media (min-width: 1024px) {
+  .app-update-banner {
+    right: var(--space-6);
+    bottom: var(--space-6);
+    left: calc(13.5rem + var(--space-6));
   }
 }
